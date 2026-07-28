@@ -1,19 +1,20 @@
 import streamlit as st
-import pdfplumber
 import re
 import pandas as pd
+from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="ATS Pro - Evaluador de CVs", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Analizador de CVs", page_icon="🚀", layout="wide")
 
-st.title("🚀 ATS Pro: Sistema de Selección y Ranking de CVs")
-st.write("Analiza, clasifica, extrae datos de contacto y exporta el ranking de tus candidatos.")
+st.title("Selección de Currículums")
+st.write("Analiza, clasifica, extrae datos de contacto y exporta el ranking de los candidatos.")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("🎯 Criterios de Selección")
+st.sidebar.header("Filtros de Selección")
 
-exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 2)
-requiere_titulo = st.sidebar.checkbox("Valorar Titulación Universitaria / Superior", value=True)
-palabras_input = st.sidebar.text_input("🔍 Palabras clave (separadas por comas):", value="Python, SQL, Inglés")
+# Desmarcado / Desactivado por defecto:
+exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
+requiere_titulo = st.sidebar.checkbox("Valorar Titulación Universitaria / Estudios Superiores", value=False)
+palabras_input = st.sidebar.text_input("🔍 Palabras clave (separadas por comas):", value="")
 
 palabras_clave = [p.strip().lower() for p in palabras_input.split(",") if p.strip()]
 
@@ -64,14 +65,8 @@ if archivos_pdf:
     lista_candidatos = []
     
     for archivo in archivos_pdf:
-        texto_completo = ""
-        
-        with pdfplumber.open(archivo) as pdf:
-            for pagina in pdf.pages:
-                t = pagina.extract_text()
-                if t:
-                    texto_completo += t + "\n"
-        
+        # Llamada directa a nuestra función inteligente con OCR integrado
+        texto_completo = extraer_texto_pdf(archivo)
         texto_lower = texto_completo.lower()
         
         # Extraer contacto y experiencia
@@ -102,9 +97,7 @@ if archivos_pdf:
         if palabras_clave:
             puntos_maximos += 50
             for palabra in palabras_clave:
-                # Búsqueda flexible (ej. inglés / english)
-                busqueda = palabra
-                if palabra == "inglés" or palabra == "ingles":
+                if palabra in ["inglés", "ingles"]:
                     menciones = texto_lower.count("inglés") + texto_lower.count("ingles") + texto_lower.count("english")
                 else:
                     menciones = texto_lower.count(palabra)
@@ -126,7 +119,6 @@ if archivos_pdf:
             "Email": email,
             "Teléfono": telefono,
             "LinkedIn": linkedin,
-            "GitHub": github,
             "Conteo Palabras": conteo_palabras,
             "Texto": texto_completo
         })
@@ -140,7 +132,7 @@ if archivos_pdf:
     
     # Crear DataFrame para la tabla
     df_exportar = pd.DataFrame(lista_candidatos).drop(columns=["Conteo Palabras", "Texto"])
-    st.dataframe(df_exportar, use_container_width=True)
+    st.dataframe(df_exportar, width="stretch")
     
     # Botón para descargar CSV
     csv_data = df_exportar.to_csv(index=False).encode('utf-8')
@@ -153,7 +145,7 @@ if archivos_pdf:
 
     # --- DESGLOSE INDIVIDUAL ---
     st.markdown("---")
-    st.subheader("🏆 Ranking de Candidatos Detallado")
+    st.subheader("Ranking de Candidatos Detallado")
     
     for i, cand in enumerate(lista_candidatos, start=1):
         score = cand["Puntuación (%)"]
@@ -163,7 +155,7 @@ if archivos_pdf:
         elif score >= 50:
             badge = "🟡 POTENCIAL"
         else:
-            badge = "🔴 BAJA MATCH"
+            badge = "🔴 BAJA POTENCIAL"
 
         with st.expander(f"#{i} {badge} | {score}% — {cand['Nombre Archivo']}"):
             st.progress(score / 100)
