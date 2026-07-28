@@ -1,6 +1,7 @@
 import os
 import io
 import platform
+import streamlit as st
 
 # Detectar el sistema operativo
 ES_WINDOWS = platform.system() == "Windows"
@@ -24,18 +25,14 @@ else:
 import pdfplumber
 from pdf2image import convert_from_bytes
 
-def extraer_texto_pdf(archivo_input):
+# --- CACHÉ DE STREAMLIT ---
+# Esta función guarda en memoria el resultado del OCR según los bytes del archivo.
+# Si los bytes no cambian, ¡no vuelve a procesar el PDF!
+@st.cache_data(show_spinner=False)
+def extraer_texto_pdf(bytes_data):
     texto = ""
 
-    # 1. Lectura de los bytes del PDF
-    if isinstance(archivo_input, str):
-        with open(archivo_input, "rb") as f:
-            bytes_data = f.read()
-    else:
-        archivo_input.seek(0)
-        bytes_data = archivo_input.read()
-
-    # 2. Intentar extracción de texto directo (PDFs digitales)
+    # 1. Intentar extracción de texto directo (PDFs digitales)
     try:
         with pdfplumber.open(io.BytesIO(bytes_data)) as pdf:
             for page in pdf.pages:
@@ -45,22 +42,21 @@ def extraer_texto_pdf(archivo_input):
     except Exception as e:
         print(f"Error en extracción directa: {e}")
 
-    # 3. Intentar OCR (PDFs escaneados o imagenes)
+    # 2. Intentar OCR (PDFs escaneados o imágenes)
     if not texto.strip():
         try:
-            print("PDF de tipo imagen detectado. Aplicando OCR...")
+            print("PDF de tipo imagen detectado. Aplicando OCR optimizado...")
             
+            # Bajamos el dpi a 150 para duplicar la velocidad sin perder precisión
             if POPPLER_PATH:
-                paginas_img = convert_from_bytes(bytes_data, poppler_path=POPPLER_PATH)
+                paginas_img = convert_from_bytes(bytes_data, dpi=150, poppler_path=POPPLER_PATH)
             else:
-                paginas_img = convert_from_bytes(bytes_data)
+                paginas_img = convert_from_bytes(bytes_data, dpi=150)
 
             for img in paginas_img:
-                # Intento 1: Con idioma español
                 try:
                     texto_pag = pytesseract.image_to_string(img, lang='spa')
-                except Exception as e_lang:
-                    print(f"Fallo idioma español en OCR ({e_lang}), reintentando por defecto...")
+                except Exception:
                     texto_pag = pytesseract.image_to_string(img)
                 
                 if texto_pag:
