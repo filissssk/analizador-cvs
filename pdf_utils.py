@@ -1,23 +1,30 @@
 import os
 import io
+import platform
 
-# Configuración de directorio temporal limpio
-TEMP_DIR = r"C:\temp"
-if not os.path.exists(TEMP_DIR):
-    os.makedirs(TEMP_DIR)
+# Detectar el sistema operativo
+ES_WINDOWS = platform.system() == "Windows"
 
-os.environ["TMP"] = TEMP_DIR
-os.environ["TEMP"] = TEMP_DIR
+# Si estás localmente en tu ordenador Windows, utiliza tus rutas locales:
+if ES_WINDOWS:
+    # Ajustar directorio temporal local
+    TEMP_DIR = r"C:\temp"
+    if not os.path.exists(TEMP_DIR):
+        os.makedirs(TEMP_DIR)
+    os.environ["TMP"] = TEMP_DIR
+    os.environ["TEMP"] = TEMP_DIR
+
+    import pytesseract
+    # Rutas locales de tu ordenador
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Tesseract-OCR\tesseract.exe'
+    POPPLER_PATH = r'C:\Users\MAÑANA\Desktop\Release-26.02.0-0\poppler-26.02.0\Library\bin'
+else:
+    # En Linux (Streamlit Cloud), Tesseract y Poppler ya están en el sistema global
+    import pytesseract
+    POPPLER_PATH = None
 
 import pdfplumber
 from pdf2image import convert_from_bytes
-import pytesseract
-
-# 1. RUTA NUEVA Y LIMPIA DE TESSERACT
-pytesseract.pytesseract.tesseract_cmd = r'C:\Tesseract-OCR\tesseract.exe'
-
-# 2. RUTA DE POPPLER
-POPPLER_PATH = r'C:\Users\MAÑANA\Desktop\Release-26.02.0-0\poppler-26.02.0\Library\bin'
 
 def extraer_texto_pdf(archivo_input):
     texto = ""
@@ -30,7 +37,7 @@ def extraer_texto_pdf(archivo_input):
         archivo_input.seek(0)
         bytes_data = archivo_input.read()
 
-    # Intento 1: Texto nativo/digital
+    # 1. Extracción directa (PDFs digitales)
     try:
         with pdfplumber.open(io.BytesIO(bytes_data)) as pdf:
             for page in pdf.pages:
@@ -40,11 +47,16 @@ def extraer_texto_pdf(archivo_input):
     except Exception as e:
         print(f"Error en extracción directa: {e}")
 
-    # Intento 2: OCR si es un PDF escaneado o de tipo imagen
+    # 2. OCR (PDFs de tipo imagen)
     if not texto.strip():
         try:
             print("PDF de tipo imagen detectado. Aplicando OCR...")
-            paginas_img = convert_from_bytes(bytes_data, poppler_path=POPPLER_PATH)
+            
+            # Si estamos en Linux (cloud), poppler_path es None y funciona automáticamente
+            if POPPLER_PATH:
+                paginas_img = convert_from_bytes(bytes_data, poppler_path=POPPLER_PATH)
+            else:
+                paginas_img = convert_from_bytes(bytes_data)
 
             for img in paginas_img:
                 try:
