@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import base64
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
@@ -10,12 +11,8 @@ st.set_page_config(page_title="Analizador de CVs Pro", page_icon="🧠", layout=
 # --- AJUSTE DE TAMAÑO DE LETRA EN MÉTRICAS ---
 st.markdown("""
     <style>
-    [data-testid="stMetricLabel"] {
-        font-size: 13px !important;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 16px !important;
-    }
+    [data-testid="stMetricLabel"] { font-size: 13px !important; }
+    [data-testid="stMetricValue"] { font-size: 16px !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -39,7 +36,7 @@ exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titulación:", value="", placeholder="Ej: Máster, Python, Inglés...")
 
 
-# --- EXTRAER DATOS DEL CV CON IA (SE EJECUTA 1 SOLA VEZ Y SE GUARDA EN CACHÉ) ---
+# --- EXTRAER DATOS DEL CV CON IA (1 SOLA VEZ CON CACHÉ) ---
 @st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
@@ -85,7 +82,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         return None
 
 
-# --- CÁLCULO DE MATCH INSTANTÁNEO EN LOCAL (ULTRA RÁPIDO) ---
+# --- CÁLCULO DE MATCH LOCAL ---
 def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req, requisitos_req):
     hay_filtros = bool(puesto_req.strip() or ubicacion_req.strip() or requisitos_req.strip() or exp_req > 0)
     if not hay_filtros:
@@ -94,7 +91,6 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
     puntos = 0
     max_puntos = 0
 
-    # 1. Puesto de trabajo (30 Puntos)
     if puesto_req.strip():
         max_puntos += 30
         puesto_palabras = [p.lower() for p in puesto_req.split() if len(p) > 2]
@@ -102,7 +98,6 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
         if menciones > 0:
             puntos += 30
 
-    # 2. Ubicación (20 Puntos)
     if ubicacion_req.strip():
         max_puntos += 20
         ub_buscada = ubicacion_req.strip().lower()
@@ -110,13 +105,11 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
         if ub_buscada in ub_detectada or ub_buscada in texto_cv.lower():
             puntos += 20
 
-    # 3. Experiencia (25 Puntos)
     if exp_req > 0:
         max_puntos += 25
         exp_candidato = datos_ia.get("anos_experiencia", 0)
         puntos += 25 * min(1.0, exp_candidato / exp_req)
 
-    # 4. Palabras clave / Requisitos / Máster (25 Puntos)
     if requisitos_req.strip():
         max_puntos += 25
         req_lista = [r.strip().lower() for r in requisitos_req.split(",") if r.strip()]
@@ -140,7 +133,6 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
 def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
     try:
         base64_pdf = base64.b64encode(bytes_data).decode('utf-8')
-        
         pdf_href = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" download="{nombre_archivo}" style="display:inline-block; padding:8px 16px; background-color:#2e7d32; color:white; text-decoration:none; border-radius:6px; margin-bottom:12px; font-weight:bold;">📄 Abrir / Descargar PDF en nueva pestaña</a>'
         st.markdown(pdf_href, unsafe_allow_html=True)
         
@@ -148,6 +140,34 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
         st.markdown(pdf_display, unsafe_allow_html=True)
     except Exception:
         st.warning("No se pudo cargar la vista previa del PDF original.")
+
+
+# --- FUNCIÓN PARA PROCESAR UN SÓLO CV (PARA USAR EN PARALELO) ---
+def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
+    bytes_pdf = archivo.getvalue()
+    texto_completo = extraer_texto_pdf(bytes_pdf)
+    datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
+    
+    if datos_ia:
+        score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
+        return {
+            "id": idx,
+            "Nombre Archivo": archivo.name,
+            "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
+            "Puntuación (%)": score,
+            "Ubicación": datos_ia.get("ubicacion_candidato", "No especificada"),
+            "Años Exp.": datos_ia.get("anos_experiencia", 0),
+            "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
+            "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
+            "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
+            "Email": datos_ia.get("email", "No encontrado"),
+            "Teléfono": datos_ia.get("telefono", "No encontrado"),
+            "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
+            "Habilidades": ", ".join(datos_ia.get("habilidades_clave", [])),
+            "Texto": texto_completo,
+            "Bytes": bytes_pdf
+        }
+    return None
 
 
 # --- CARGADOR DE ARCHIVOS ---
@@ -159,34 +179,32 @@ if archivos_pdf:
     else:
         lista_candidatos = []
         
-        for idx, archivo in enumerate(archivos_pdf):
-            bytes_pdf = archivo.getvalue()
-            texto_completo = extraer_texto_pdf(bytes_pdf)
+        # Barra de progreso para informar al usuario
+        progreso = st.progress(0)
+        estado_texto = st.empty()
+        total_archivos = len(archivos_pdf)
+        
+        estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo...")
+        
+        # PROCESAMIENTO EN PARALELO HASTA 5 CVS AL MISMO TIEMPO
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [
+                executor.submit(
+                    procesar_un_cv, archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input
+                )
+                for idx, archivo in enumerate(archivos_pdf)
+            ]
             
-            with st.spinner(f"Analizando [{idx+1}/{len(archivos_pdf)}] {archivo.name}..."):
-                # Se envía solo el texto y la API key para aprovechar la CACHÉ al 100%
-                datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
-            
-            if datos_ia:
-                score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
-                
-                lista_candidatos.append({
-                    "id": idx,
-                    "Nombre Archivo": archivo.name,
-                    "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-                    "Puntuación (%)": score,
-                    "Ubicación": datos_ia.get("ubicacion_candidato", "No especificada"),
-                    "Años Exp.": datos_ia.get("anos_experiencia", 0),
-                    "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
-                    "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
-                    "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
-                    "Email": datos_ia.get("email", "No encontrado"),
-                    "Teléfono": datos_ia.get("telefono", "No encontrado"),
-                    "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
-                    "Habilidades": ", ".join(datos_ia.get("habilidades_clave", [])),
-                    "Texto": texto_completo,
-                    "Bytes": bytes_pdf
-                })
+            completados = 0
+            for future in as_completed(futures):
+                res = future.result()
+                if res:
+                    lista_candidatos.append(res)
+                completados += 1
+                progreso.progress(completados / total_archivos)
+        
+        progreso.empty()
+        estado_texto.empty()
 
         if lista_candidatos:
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
@@ -233,15 +251,4 @@ if archivos_pdf:
                     if desglose:
                         for exp in desglose:
                             puesto_emp = exp.get("puesto_empresa", "Puesto no especificado")
-                            duracion = exp.get("duracion", "Tiempo no especificado")
-                            st.markdown(f"- **{puesto_emp}**: `{duracion}`")
-                    else:
-                        st.write("No se detectó un desglose de puestos específicos.")
-                    
-                    st.write(f"**💡 Habilidades Detectadas:** {cand['Habilidades']}")
-                    
-                    tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
-                    with tab_pdf:
-                        mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
-                    with tab_texto:
-                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
+                            duracion = exp.
