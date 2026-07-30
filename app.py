@@ -7,10 +7,10 @@ from pdf_utils import extraer_texto_pdf
 
 st.set_page_config(page_title="ATS Pro + IA - Evaluador de CVs", page_icon="🧠", layout="wide")
 
-st.title("Selección Inteligente de CVs")
+st.title("🧠 ATS Pro + IA (Groq): Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
-# --- BARRA LATERAL (FILTROS A CERO/VACÍOS POR DEFECTO) ---
+# --- BARRA LATERAL (FILTROS VACÍOS POR DEFECTO) ---
 st.sidebar.header("🔑 Configuración de IA")
 api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
 
@@ -19,32 +19,39 @@ puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: C
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="", placeholder="Ej: Python, Excel, Inglés...")
 
-# --- FUNCIÓN CONECTADA A GROQ ---
+# --- FUNCIÓN CONECTADA A GROQ CON PUNTUACIÓN INTELIGENTE ---
 def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
     try:
         client = Groq(api_key=api_key)
         
+        # Detectar si el usuario ha configurado algún filtro
+        hay_filtros = bool(puesto_evaluar.strip() or requisitos.strip() or exp_req > 0)
+        
         prompt = f"""
         Eres un reclutador experto de Selección y Recursos Humanos.
-        Analiza el siguiente texto extraído de un currículum para el puesto de: "{puesto_evaluar if puesto_evaluar else 'General / Sin especificar'}".
-        
-        Criterios adicionales:
-        - Años de experiencia deseados: {exp_req}
-        - Requisitos/Habilidades requeridas: {requisitos if requisitos else 'Sin requisitos específicos'}
+        Analiza el siguiente texto extraído de un currículum.
 
-        Debes responder ÚNICAMENTE con un objeto JSON válido (sin texto antes ni después) con la siguiente estructura exacta:
+        CRITERIOS DE SELECCIÓN SOLICITADOS POR EL USUARIO:
+        - Puesto buscado: "{puesto_evaluar if puesto_evaluar.strip() else 'No especificado'}"
+        - Años de experiencia mínimos requeridos: {exp_req}
+        - Habilidades/Requisitos indispensables: "{requisitos if requisitos.strip() else 'No especificados'}"
+
+        INSTRUCCIONES PARA LA PUNTUACIÓN (puntuacion_match):
+        {'1. Evalúa estrictamente de 0 a 100 qué tan bien cumple el candidato con el puesto, la experiencia requerida y las habilidades mencionadas.' if hay_filtros else '1. Dado que el usuario NO ha especificado ningún criterio ni filtro de búsqueda, asigna un 100 en la puntuacion_match a todos los candidatos.'}
+
+        Debes responder ÚNICAMENTE con un objeto JSON válido (sin formato markdown adicional ni texto fuera del JSON) con esta estructura:
         {{
-            "nombre_candidato": "Nombre del candidato o 'No identificado'",
+            "nombre_candidato": "Nombre completo del candidato o 'No identificado'",
             "email": "email o 'No encontrado'",
             "telefono": "teléfono o 'No encontrado'",
-            "anos_experiencia": número entero con los años reales de experiencia estimados,
+            "anos_experiencia": número entero estimado de años de experiencia total laboral,
             "tiene_titulacion": true o false,
-            "puntuacion_match": número entero entre 0 y 100 indicando qué tan bien encaja con el puesto o si es un buen CV general,
-            "resumen_ejecutivo": "Un resumen breve de 2-3 frases sobre los puntos fuertes y débil del candidato.",
+            "puntuacion_match": número entero entre 0 y 100,
+            "resumen_ejecutivo": "Un resumen breve de 2 frases sobre la trayectoria del candidato.",
             "habilidades_clave": ["lista", "de", "habilidades", "detectadas"]
         }}
 
-        Texto del CV:
+        TEXTO DEL CURRÍCULUM:
         {texto_cv}
         """
         
@@ -83,10 +90,7 @@ if archivos_pdf:
         lista_candidatos = []
         
         for idx, archivo in enumerate(archivos_pdf):
-            # Leemos los bytes de forma aislada para cada archivo
             bytes_pdf = archivo.getvalue()
-            
-            # Extraer texto asegurando que es único para este PDF
             texto_completo = extraer_texto_pdf(bytes_pdf)
             
             with st.spinner(f"Analizando [{idx+1}/{len(archivos_pdf)}] {archivo.name}..."):
@@ -109,10 +113,10 @@ if archivos_pdf:
                 })
 
         if lista_candidatos:
-            # Ordenar ranking
+            # Ordenar por puntuación descendente
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
-            # TABLA COMPARATIVA
+            # TABLA COMPARATIVA EDITABLE
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA")
             
@@ -127,7 +131,7 @@ if archivos_pdf:
                 mime="text/csv"
             )
 
-            # DESGLOSE INDIVIDUAL
+            # DESGLOSE INDIVIDUAL Y VISTA PREVIA
             st.markdown("---")
             st.subheader("🏆 Evaluación Detallada")
             
