@@ -5,16 +5,16 @@ import json
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="ATS Pro + IA - Evaluador de CVs", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Analizador de CVs", page_icon=" ", layout="wide")
 
-st.title("🧠 ATS Pro + IA (Groq): Selección Inteligente de CVs")
+st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL (FILTROS VACÍOS POR DEFECTO) ---
-st.sidebar.header("🔑 Configuración de IA")
-api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
+st.sidebar.header(" Configuración de IA")
+api_key = st.sidebar.text_input("Ingresa API Key:", type="password")
 
-st.sidebar.header("🎯 Criterios de Selección")
+st.sidebar.header("Filtros de Selección")
 puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: Contable, Desarrollador, Comercial...")
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="", placeholder="Ej: Python, Excel, Inglés...")
