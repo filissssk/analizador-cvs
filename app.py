@@ -27,8 +27,16 @@ st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.
 
 # --- BARRA LATERAL ---
 st.sidebar.header("🔑 Configuración de IA")
-api_key = st.sidebar.text_input("Ingresa API Key:", type="password")
 
+# 1. Intentar cargar la clave automáticamente desde Secrets
+api_key_secret = st.secrets.get("GROQ_API_KEY", "")
+
+# 2. Si existe en Secrets, la usa. Si no, muestra el campo para pegarla manualmente.
+if api_key_secret:
+    api_key = api_key_secret
+    st.sidebar.success("✅ API Key cargada automáticamente desde Secrets")
+else:
+    api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
 st.sidebar.header("Filtros de Selección")
 puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: Contable, Desarrollador, Comercial...")
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
