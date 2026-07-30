@@ -251,4 +251,4 @@ if archivos_pdf:
                     if desglose:
                         for exp in desglose:
                             puesto_emp = exp.get("puesto_empresa", "Puesto no especificado")
-                            duracion = exp.
+                            duracion = exp.get("duracion", "Tiempo no especificado")
