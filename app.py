@@ -187,6 +187,6 @@ if archivos_pdf:
                     
                     tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
                     with tab_pdf:
-                    mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
+                        mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
