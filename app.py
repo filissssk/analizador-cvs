@@ -5,19 +5,19 @@ import json
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="ATS Pro + IA - Evaluador de CVs", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Analizador de CVs", page_icon=" ", layout="wide")
 
-st.title("🧠 ATS Pro + IA (Groq): Selección Inteligente de CVs")
+st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("🔑 Configuración de IA")
-api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
+st.sidebar.header("Configuración de IA")
+api_key = st.sidebar.text_input("Ingresa API Key:", type="password")
 
-st.sidebar.header("🎯 Criterios de Selección")
-puesto = st.sidebar.text_input("Puesto a evaluar:", value="Desarrollador Full Stack")
+st.sidebar.header("Filtros de Selección")
+puesto = st.sidebar.text_input("Puesto a evaluar:", value=" ")
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 2)
-palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="Python, React, SQL")
+palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value=" ")
 
 # --- FUNCIÓN CONECTADA A GROQ ---
 def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
@@ -121,7 +121,7 @@ if archivos_pdf:
 
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("🏆 Evaluación Detallada")
+            st.subheader("Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
