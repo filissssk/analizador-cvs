@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs Pro", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Analizador de CVs Pro", page_icon=" ", layout="wide")
 
 # CSS personalizado para corregir tamaños y evitar cortes visuales
 st.markdown("""
@@ -23,7 +23,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🧠 Selección Inteligente de CVs")
+st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL ---
@@ -36,9 +36,9 @@ if api_key_secret:
 else:
     api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
 
-st.sidebar.header("🎯 Filtros de Selección")
+st.sidebar.header("Filtros de Selección")
 puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: Profesor de Marketing, Contable...")
-ubicacion_input = st.sidebar.text_input("📍 Ubicación / Ciudad:", value="", placeholder="Ej: Murcia, Elche, Cartagena...")
+ubicacion_input = st.sidebar.text_input("📍 Localidad / Ciudad:", value="", placeholder="Ej: Murcia, Elche, Cartagena...")
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titulación:", value="", placeholder="Ej: Máster, Python, Inglés...")
 
@@ -244,7 +244,7 @@ if archivos_pdf:
 
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("🏆 Evaluación Detallada")
+            st.subheader("Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -263,7 +263,7 @@ if archivos_pdf:
                         st.markdown(f"⏳ **Experiencia Total:** `{cand['Años Exp.']} años`")
                         st.markdown(f"🎓 **Titulación Superior:** `{cand['Titulación']}` | 🎓 **Máster:** `{cand['Máster']}`")
 
-                    st.write("**🤖 Resumen Ejecutivo de la IA:**")
+                    st.write("**Resumen Ejecutivo de la IA:**")
                     st.info(cand["Resumen IA"])
                     
                     # Renderizado blindado del desglose (evita que falle si la IA devuelve texto o dict)
