@@ -59,7 +59,7 @@ def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            model="llama-3.3-70b-versatile",
+            model="model="llama-3.1-8b-instant",
             response_format={"type": "json_object"}
         )
         
