@@ -7,6 +7,21 @@ from pdf_utils import extraer_texto_pdf
 
 st.set_page_config(page_title="Analizado de CVs", page_icon=" ", layout="wide")
 
+# --- AJUSTE DE TAMAÑO DE LETRA EN MÉTRICAS ---
+st.markdown("""
+    <style>
+    /* Cambia el tamaño del título de la métrica (Email, Teléfono, Experiencia...) */
+    [data-testid="stMetricLabel"] {
+        font-size: 14px !important;
+    }
+    
+    /* Cambia el tamaño del valor/número grande (+34..., 23 años, Sí...) */
+    [data-testid="stMetricValue"] {
+        font-size: 20px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
