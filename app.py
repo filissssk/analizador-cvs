@@ -10,8 +10,8 @@ st.set_page_config(page_title="Analizador de CVs", page_icon=" ", layout="wide")
 st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
-# --- BARRA LATERAL (FILTROS VACÍOS POR DEFECTO) ---
-st.sidebar.header(" Configuración de IA")
+# --- BARRA LATERAL ---
+st.sidebar.header("Configuración de IA")
 api_key = st.sidebar.text_input("Ingresa API Key:", type="password")
 
 st.sidebar.header("Filtros de Selección")
@@ -19,12 +19,12 @@ puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: C
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="", placeholder="Ej: Python, Excel, Inglés...")
 
-# --- FUNCIÓN CONECTADA A GROQ CON PUNTUACIÓN INTELIGENTE ---
-def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
+# --- FUNCIÓN CON CACHÉ PARA EVITAR LLAMADAS REPETIDAS A LA IA ---
+@st.cache_data(show_spinner=False)
+def analizar_cv_con_ia_cached(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
     try:
         client = Groq(api_key=api_key)
         
-        # Detectar si el usuario ha configurado algún filtro
         hay_filtros = bool(puesto_evaluar.strip() or requisitos.strip() or exp_req > 0)
         
         prompt = f"""
@@ -56,9 +56,7 @@ def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
         """
         
         chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
+            messages=[{"role": "user", "content": prompt}],
             model="llama-3.1-8b-instant",
             response_format={"type": "json_object"}
         )
@@ -94,7 +92,8 @@ if archivos_pdf:
             texto_completo = extraer_texto_pdf(bytes_pdf)
             
             with st.spinner(f"Analizando [{idx+1}/{len(archivos_pdf)}] {archivo.name}..."):
-                datos_ia = analizar_cv_con_ia(texto_completo, puesto, exp_minima, palabras_input, api_key)
+                # Llamada con memoria caché
+                datos_ia = analizar_cv_con_ia_cached(texto_completo, puesto, exp_minima, palabras_input, api_key)
             
             if datos_ia:
                 lista_candidatos.append({
@@ -113,7 +112,6 @@ if archivos_pdf:
                 })
 
         if lista_candidatos:
-            # Ordenar por puntuación descendente
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
             # TABLA COMPARATIVA EDITABLE
@@ -131,9 +129,9 @@ if archivos_pdf:
                 mime="text/csv"
             )
 
-            # DESGLOSE INDIVIDUAL Y VISTA PREVIA
+            # DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("🏆 Evaluación Detallada")
+            st.subheader("Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -151,7 +149,7 @@ if archivos_pdf:
                     st.write("**🤖 Resumen Ejecutivo de la IA:**")
                     st.info(cand["Resumen IA"])
                     
-                    st.write(f"**💡 Habilidades Detectadas:** {cand['Habilidades']}")
+                    st.write(f"**Habilidades Detectadas:** {cand['Habilidades']}")
                     
                     tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
                     with tab_pdf:
