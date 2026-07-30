@@ -26,7 +26,7 @@ st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("🔑 Configuración de IA")
+st.sidebar.header("Configuración de IA")
 
 # 1. Intentar cargar la clave automáticamente desde Secrets
 api_key_secret = st.secrets.get("GROQ_API_KEY", "")
