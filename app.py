@@ -5,19 +5,19 @@ import json
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs", page_icon=" ", layout="wide")
+st.set_page_config(page_title="ATS Pro + IA - Evaluador de CVs", page_icon="🧠", layout="wide")
 
 st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
-# --- BARRA LATERAL ---
-st.sidebar.header("Configuración de IA")
-api_key = st.sidebar.text_input("Ingresa API Key:", type="password")
+# --- BARRA LATERAL (FILTROS A CERO/VACÍOS POR DEFECTO) ---
+st.sidebar.header("🔑 Configuración de IA")
+api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
 
-st.sidebar.header("Filtros de Selección")
-puesto = st.sidebar.text_input("Puesto a evaluar:", value=" ")
-exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 2)
-palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value=" ")
+st.sidebar.header("🎯 Criterios de Selección")
+puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: Contable, Desarrollador, Comercial...")
+exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
+palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="", placeholder="Ej: Python, Excel, Inglés...")
 
 # --- FUNCIÓN CONECTADA A GROQ ---
 def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
@@ -26,11 +26,11 @@ def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
         
         prompt = f"""
         Eres un reclutador experto de Selección y Recursos Humanos.
-        Analiza el siguiente texto extraído de un currículum para el puesto de: "{puesto_evaluar}".
+        Analiza el siguiente texto extraído de un currículum para el puesto de: "{puesto_evaluar if puesto_evaluar else 'General / Sin especificar'}".
         
         Criterios adicionales:
         - Años de experiencia deseados: {exp_req}
-        - Requisitos/Habilidades requeridas: {requisitos}
+        - Requisitos/Habilidades requeridas: {requisitos if requisitos else 'Sin requisitos específicos'}
 
         Debes responder ÚNICAMENTE con un objeto JSON válido (sin texto antes ni después) con la siguiente estructura exacta:
         {{
@@ -39,8 +39,8 @@ def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
             "telefono": "teléfono o 'No encontrado'",
             "anos_experiencia": número entero con los años reales de experiencia estimados,
             "tiene_titulacion": true o false,
-            "puntuacion_match": número entero entre 0 y 100 indicando qué tan bien encaja con el puesto,
-            "resumen_ejecutivo": "Un resumen breve de 2-3 frases sobre los puntos fuertes y débiles del candidato.",
+            "puntuacion_match": número entero entre 0 y 100 indicando qué tan bien encaja con el puesto o si es un buen CV general,
+            "resumen_ejecutivo": "Un resumen breve de 2-3 frases sobre los puntos fuertes y débil del candidato.",
             "habilidades_clave": ["lista", "de", "habilidades", "detectadas"]
         }}
 
@@ -64,9 +64,12 @@ def analizar_cv_con_ia(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
         return None
 
 def mostrar_pdf_preview(bytes_data):
-    base64_pdf = base64.b64encode(bytes_data).decode('utf-8')
-    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
-    st.markdown(pdf_display, unsafe_allow_html=True)
+    try:
+        base64_pdf = base64.b64encode(bytes_data).decode('utf-8')
+        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+    except Exception:
+        st.warning("No se pudo cargar la vista previa del PDF original.")
 
 # --- CARGADOR DE ARCHIVOS ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
@@ -79,15 +82,19 @@ if archivos_pdf:
         
         lista_candidatos = []
         
-        for archivo in archivos_pdf:
+        for idx, archivo in enumerate(archivos_pdf):
+            # Leemos los bytes de forma aislada para cada archivo
             bytes_pdf = archivo.getvalue()
+            
+            # Extraer texto asegurando que es único para este PDF
             texto_completo = extraer_texto_pdf(bytes_pdf)
             
-            with st.spinner(f"Analizando {archivo.name}..."):
+            with st.spinner(f"Analizando [{idx+1}/{len(archivos_pdf)}] {archivo.name}..."):
                 datos_ia = analizar_cv_con_ia(texto_completo, puesto, exp_minima, palabras_input, api_key)
             
             if datos_ia:
                 lista_candidatos.append({
+                    "id": idx,
                     "Nombre Archivo": archivo.name,
                     "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
                     "Puntuación (%)": datos_ia.get("puntuacion_match", 0),
@@ -102,13 +109,14 @@ if archivos_pdf:
                 })
 
         if lista_candidatos:
+            # Ordenar ranking
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
-            # TABLA EDITABLE Y EXPORTABLE
+            # TABLA COMPARATIVA
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA")
             
-            df_exportar = pd.DataFrame(lista_candidatos).drop(columns=["Texto", "Bytes"])
+            df_exportar = pd.DataFrame(lista_candidatos).drop(columns=["id", "Texto", "Bytes"])
             df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
             
             csv_data = df_editado.to_csv(index=False).encode('utf-8')
@@ -121,7 +129,7 @@ if archivos_pdf:
 
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("Evaluación Detallada")
+            st.subheader("🏆 Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -145,4 +153,4 @@ if archivos_pdf:
                     with tab_pdf:
                         mostrar_pdf_preview(cand["Bytes"])
                     with tab_texto:
-                        st.text_area("Texto bruto", cand["Texto"], height=150, key=f"cv_{i}")
+                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
