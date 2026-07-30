@@ -170,14 +170,16 @@ if archivos_pdf:
             df_exportar = pd.DataFrame(lista_candidatos).drop(columns=["id", "Texto", "Bytes"])
             df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
             
-            csv_data = df_editado.to_csv(index=False).encode('utf-8')
+            # --- GENERAR CSV COMPATIBLE CON EXCEL EN ESPAÑOL ---
+            csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+            
             st.download_button(
                 label="📥 Descargar Reporte Completo (CSV)",
                 data=csv_data,
                 file_name="analisis_cv_ia.csv",
                 mime="text/csv"
             )
-
+        
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
             st.subheader("Evaluación Detallada")
