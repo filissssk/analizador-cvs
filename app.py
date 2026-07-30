@@ -94,13 +94,20 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, exp_req, requisitos_req
 
     return int((puntos / max_puntos) * 100)
 
-def mostrar_pdf_preview(bytes_data):
+def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
     try:
         base64_pdf = base64.b64encode(bytes_data).decode('utf-8')
-        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+        
+        # Enlace directo para abrir o descargar
+        pdf_href = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" download="{nombre_archivo}" style="display:inline-block; padding:8px 16px; background-color:#4CAF50; color:white; text-decoration:none; border-radius:4px; margin-bottom:10px;">📄 Abrir / Descargar PDF en nueva pestaña</a>'
+        st.markdown(pdf_href, unsafe_allow_html=True)
+        
+        # Visor embebido mejorado con HTML object
+        pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada. Usa el botón de arriba para abrir el PDF.</p></object>'
         st.markdown(pdf_display, unsafe_allow_html=True)
     except Exception:
         st.warning("No se pudo cargar la vista previa del PDF original.")
+    
 
 # --- CARGADOR DE ARCHIVOS ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
@@ -180,6 +187,6 @@ if archivos_pdf:
                     
                     tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
                     with tab_pdf:
-                        mostrar_pdf_preview(cand["Bytes"])
+                    mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
