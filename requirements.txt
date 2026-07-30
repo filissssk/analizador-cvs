@@ -4,3 +4,4 @@ pandas
 pdf2image
 pytesseract
 pillow
+groq
