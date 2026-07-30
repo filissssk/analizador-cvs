@@ -5,7 +5,7 @@ import json
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs", page_icon=" ", layout="wide")
+st.set_page_config(page_title="Analizador de CVs", page_icon="", layout="wide")
 
 st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
@@ -19,9 +19,9 @@ puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: C
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="", placeholder="Ej: Python, Excel, Inglés...")
 
-# --- FUNCIÓN CON CACHÉ PARA EVITAR LLAMADAS REPETIDAS A LA IA ---
+# --- FUNCIÓN QUE ANALIZA TODOS LOS CVS DE UNA SOLA VEZ ---
 @st.cache_data(show_spinner=False)
-def analizar_cv_con_ia_cached(texto_cv, puesto_evaluar, exp_req, requisitos, api_key):
+def analizar_lote_cvs_cached(lista_textos_json, puesto_evaluar, exp_req, requisitos, api_key):
     try:
         client = Groq(api_key=api_key)
         
@@ -29,7 +29,7 @@ def analizar_cv_con_ia_cached(texto_cv, puesto_evaluar, exp_req, requisitos, api
         
         prompt = f"""
         Eres un reclutador experto de Selección y Recursos Humanos.
-        Analiza el siguiente texto extraído de un currículum.
+        Analiza la siguiente lista de currículums.
 
         CRITERIOS DE SELECCIÓN SOLICITADOS POR EL USUARIO:
         - Puesto buscado: "{puesto_evaluar if puesto_evaluar.strip() else 'No especificado'}"
@@ -37,22 +37,27 @@ def analizar_cv_con_ia_cached(texto_cv, puesto_evaluar, exp_req, requisitos, api
         - Habilidades/Requisitos indispensables: "{requisitos if requisitos.strip() else 'No especificados'}"
 
         INSTRUCCIONES PARA LA PUNTUACIÓN (puntuacion_match):
-        {'1. Evalúa estrictamente de 0 a 100 qué tan bien cumple el candidato con el puesto, la experiencia requerida y las habilidades mencionadas.' if hay_filtros else '1. Dado que el usuario NO ha especificado ningún criterio ni filtro de búsqueda, asigna un 100 en la puntuacion_match a todos los candidatos.'}
+        {'1. Evalúa estrictamente de 0 a 100 qué tan bien cumple cada candidato con el puesto, la experiencia requerida y las habilidades mencionadas.' if hay_filtros else '1. Dado que el usuario NO ha especificado ningún criterio ni filtro de búsqueda, asigna un 100 en la puntuacion_match a todos los candidatos.'}
 
-        Debes responder ÚNICAMENTE con un objeto JSON válido (sin formato markdown adicional ni texto fuera del JSON) con esta estructura:
+        Debes responder ÚNICAMENTE con un objeto JSON estructurado que contenga una lista llamada "candidatos", con un elemento por cada CV recibido (manteniendo el campo "id" exacto):
         {{
-            "nombre_candidato": "Nombre completo del candidato o 'No identificado'",
-            "email": "email o 'No encontrado'",
-            "telefono": "teléfono o 'No encontrado'",
-            "anos_experiencia": número entero estimado de años de experiencia total laboral,
-            "tiene_titulacion": true o false,
-            "puntuacion_match": número entero entre 0 y 100,
-            "resumen_ejecutivo": "Un resumen breve de 2 frases sobre la trayectoria del candidato.",
-            "habilidades_clave": ["lista", "de", "habilidades", "detectadas"]
+            "candidatos": [
+                {{
+                    "id": número entero correspondiente al id recibido,
+                    "nombre_candidato": "Nombre completo del candidato o 'No identificado'",
+                    "email": "email o 'No encontrado'",
+                    "telefono": "teléfono o 'No encontrado'",
+                    "anos_experiencia": número entero estimado de años de experiencia total laboral,
+                    "tiene_titulacion": true o false,
+                    "puntuacion_match": número entero entre 0 y 100,
+                    "resumen_ejecutivo": "Un resumen breve de 2 frases sobre la trayectoria del candidato.",
+                    "habilidades_clave": ["lista", "de", "habilidades", "detectadas"]
+                }}
+            ]
         }}
 
-        TEXTO DEL CURRÍCULUM:
-        {texto_cv}
+        LISTA DE CURRÍCULUMS EN FORMATO JSON:
+        {lista_textos_json}
         """
         
         chat_completion = client.chat.completions.create(
@@ -83,22 +88,35 @@ if archivos_pdf:
     if not api_key:
         st.warning("⚠️ Por favor, ingresa tu Groq API Key en la barra lateral para iniciar el análisis.")
     else:
-        st.info(f"Procesando {len(archivos_pdf)} currículums con la IA de Groq...")
+        st.info(f"Procesando {len(archivos_pdf)} currículums...")
         
-        lista_candidatos = []
-        
+        # 1. Extraer el texto de todos los archivos primero (muy rápido)
+        cvs_datos = []
         for idx, archivo in enumerate(archivos_pdf):
             bytes_pdf = archivo.getvalue()
             texto_completo = extraer_texto_pdf(bytes_pdf)
+            cvs_datos.append({
+                "id": idx,
+                "nombre_archivo": archivo.name,
+                "texto": texto_completo,
+                "bytes": bytes_pdf
+            })
             
-            with st.spinner(f"Analizando [{idx+1}/{len(archivos_pdf)}] {archivo.name}..."):
-                # Llamada con memoria caché
-                datos_ia = analizar_cv_con_ia_cached(texto_completo, puesto, exp_minima, palabras_input, api_key)
+        # 2. Preparar payload ligero para enviar de un solo golpe a Groq
+        payload_ia = json.dumps([{"id": c["id"], "texto_cv": c["texto"]} for c in cvs_datos])
+        
+        with st.spinner("Evaluando candidaturas con la IA de Groq en un solo paso..."):
+            resultado_ia = analizar_lote_cvs_cached(payload_ia, puesto, exp_minima, palabras_input, api_key)
             
-            if datos_ia:
+        if resultado_ia and "candidatos" in resultado_ia:
+            dicc_resultados = {c["id"]: c for c in resultado_ia["candidatos"]}
+            
+            lista_candidatos = []
+            for cv in cvs_datos:
+                datos_ia = dicc_resultados.get(cv["id"], {})
                 lista_candidatos.append({
-                    "id": idx,
-                    "Nombre Archivo": archivo.name,
+                    "id": cv["id"],
+                    "Nombre Archivo": cv["nombre_archivo"],
                     "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
                     "Puntuación (%)": datos_ia.get("puntuacion_match", 0),
                     "Años Exp.": datos_ia.get("anos_experiencia", 0),
@@ -107,14 +125,13 @@ if archivos_pdf:
                     "Teléfono": datos_ia.get("telefono", "No encontrado"),
                     "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
                     "Habilidades": ", ".join(datos_ia.get("habilidades_clave", [])),
-                    "Texto": texto_completo,
-                    "Bytes": bytes_pdf
+                    "Texto": cv["texto"],
+                    "Bytes": cv["bytes"]
                 })
 
-        if lista_candidatos:
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
-            # TABLA COMPARATIVA EDITABLE
+            # TABLA COMPARATIVA
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA")
             
@@ -146,10 +163,10 @@ if archivos_pdf:
                     col3.metric("Experiencia IA", f"{cand['Años Exp.']} años")
                     col4.metric("Titulación", cand["Titulación"])
                     
-                    st.write("**🤖 Resumen Ejecutivo de la IA:**")
+                    st.write("**Resumen Ejecutivo de la IA:**")
                     st.info(cand["Resumen IA"])
                     
-                    st.write(f"**Habilidades Detectadas:** {cand['Habilidades']}")
+                    st.write(f"** Habilidades Detectadas:** {cand['Habilidades']}")
                     
                     tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
                     with tab_pdf:
