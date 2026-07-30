@@ -5,13 +5,13 @@ import json
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs", page_icon="", layout="wide")
+st.set_page_config(page_title="Analizado de CVs", page_icon=" ", layout="wide")
 
 st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("Configuración de IA")
+st.sidebar.header("🔑 Configuración de IA")
 api_key = st.sidebar.text_input("Ingresa API Key:", type="password")
 
 st.sidebar.header("Filtros de Selección")
@@ -19,45 +19,29 @@ puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: C
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave:", value="", placeholder="Ej: Python, Excel, Inglés...")
 
-# --- FUNCIÓN QUE ANALIZA TODOS LOS CVS DE UNA SOLA VEZ ---
+# --- EXTRAER DATOS DEL CV CON IA (SE EJECUTA 1 SOLA VEZ POR CV) ---
 @st.cache_data(show_spinner=False)
-def analizar_lote_cvs_cached(lista_textos_json, puesto_evaluar, exp_req, requisitos, api_key):
+def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
         client = Groq(api_key=api_key)
         
-        hay_filtros = bool(puesto_evaluar.strip() or requisitos.strip() or exp_req > 0)
-        
         prompt = f"""
-        Eres un reclutador experto de Selección y Recursos Humanos.
-        Analiza la siguiente lista de currículums.
+        Eres un extractor de datos de Recursos Humanos.
+        Analiza el siguiente texto de un currículum y extrae la información clave en JSON.
 
-        CRITERIOS DE SELECCIÓN SOLICITADOS POR EL USUARIO:
-        - Puesto buscado: "{puesto_evaluar if puesto_evaluar.strip() else 'No especificado'}"
-        - Años de experiencia mínimos requeridos: {exp_req}
-        - Habilidades/Requisitos indispensables: "{requisitos if requisitos.strip() else 'No especificados'}"
-
-        INSTRUCCIONES PARA LA PUNTUACIÓN (puntuacion_match):
-        {'1. Evalúa estrictamente de 0 a 100 qué tan bien cumple cada candidato con el puesto, la experiencia requerida y las habilidades mencionadas.' if hay_filtros else '1. Dado que el usuario NO ha especificado ningún criterio ni filtro de búsqueda, asigna un 100 en la puntuacion_match a todos los candidatos.'}
-
-        Debes responder ÚNICAMENTE con un objeto JSON estructurado que contenga una lista llamada "candidatos", con un elemento por cada CV recibido (manteniendo el campo "id" exacto):
+        Debes responder ÚNICAMENTE con un objeto JSON válido con esta estructura exactas:
         {{
-            "candidatos": [
-                {{
-                    "id": número entero correspondiente al id recibido,
-                    "nombre_candidato": "Nombre completo del candidato o 'No identificado'",
-                    "email": "email o 'No encontrado'",
-                    "telefono": "teléfono o 'No encontrado'",
-                    "anos_experiencia": número entero estimado de años de experiencia total laboral,
-                    "tiene_titulacion": true o false,
-                    "puntuacion_match": número entero entre 0 y 100,
-                    "resumen_ejecutivo": "Un resumen breve de 2 frases sobre la trayectoria del candidato.",
-                    "habilidades_clave": ["lista", "de", "habilidades", "detectadas"]
-                }}
-            ]
+            "nombre_candidato": "Nombre completo o 'No identificado'",
+            "email": "email o 'No encontrado'",
+            "telefono": "teléfono o 'No encontrado'",
+            "anos_experiencia": número entero estimado de años de experiencia laboral total,
+            "tiene_titulacion": true o false (si cuenta con estudios universitarios/superiores/grado/máster),
+            "resumen_ejecutivo": "Un resumen breve de 2 frases sobre el perfil del candidato.",
+            "habilidades_clave": ["lista", "de", "habilidades", "tecnologias", "idiomas"]
         }}
 
-        LISTA DE CURRÍCULUMS EN FORMATO JSON:
-        {lista_textos_json}
+        TEXTO DEL CV:
+        {texto_cv}
         """
         
         chat_completion = client.chat.completions.create(
@@ -66,12 +50,49 @@ def analizar_lote_cvs_cached(lista_textos_json, puesto_evaluar, exp_req, requisi
             response_format={"type": "json_object"}
         )
         
-        respuesta_texto = chat_completion.choices[0].message.content
-        return json.loads(respuesta_texto)
+        return json.loads(chat_completion.choices[0].message.content)
         
     except Exception as e:
         st.error(f"Error al analizar con Groq: {e}")
         return None
+
+# --- CÁLCULO DE SCORE INSTANTÁNEO EN LOCAL ---
+def calcular_match_local(datos_ia, texto_cv, puesto_req, exp_req, requisitos_req):
+    hay_filtros = bool(puesto_req.strip() or requisitos_req.strip() or exp_req > 0)
+    
+    # Si no hay ningún filtro introducido por el usuario -> 100%
+    if not hay_filtros:
+        return 100
+
+    puntos = 0
+    max_puntos = 0
+
+    # 1. Puesto de trabajo (30 Puntos)
+    if puesto_req.strip():
+        max_puntos += 30
+        puesto_palabras = [p.lower() for p in puesto_req.split() if len(p) > 2]
+        menciones = sum(1 for p in puesto_palabras if p in texto_cv.lower())
+        if menciones > 0:
+            puntos += 30
+
+    # 2. Experiencia (30 Puntos)
+    if exp_req > 0:
+        max_puntos += 30
+        exp_candidato = datos_ia.get("anos_experiencia", 0)
+        puntos += 30 * min(1.0, exp_candidato / exp_req)
+
+    # 3. Palabras clave / Requisitos (40 Puntos)
+    if requisitos_req.strip():
+        max_puntos += 40
+        req_lista = [r.strip().lower() for r in requisitos_req.split(",") if r.strip()]
+        if req_lista:
+            encontradas = sum(1 for r in req_lista if r in texto_cv.lower() or any(r in h.lower() for h in datos_ia.get("habilidades_clave", [])))
+            puntos += 40 * (encontradas / len(req_lista))
+
+    if max_puntos == 0:
+        return 100
+
+    return int((puntos / max_puntos) * 100)
 
 def mostrar_pdf_preview(bytes_data):
     try:
@@ -88,47 +109,36 @@ if archivos_pdf:
     if not api_key:
         st.warning("⚠️ Por favor, ingresa tu Groq API Key en la barra lateral para iniciar el análisis.")
     else:
-        st.info(f"Procesando {len(archivos_pdf)} currículums...")
+        lista_candidatos = []
         
-        # 1. Extraer el texto de todos los archivos primero (muy rápido)
-        cvs_datos = []
         for idx, archivo in enumerate(archivos_pdf):
             bytes_pdf = archivo.getvalue()
             texto_completo = extraer_texto_pdf(bytes_pdf)
-            cvs_datos.append({
-                "id": idx,
-                "nombre_archivo": archivo.name,
-                "texto": texto_completo,
-                "bytes": bytes_pdf
-            })
             
-        # 2. Preparar payload ligero para enviar de un solo golpe a Groq
-        payload_ia = json.dumps([{"id": c["id"], "texto_cv": c["texto"]} for c in cvs_datos])
-        
-        with st.spinner("Evaluando candidaturas con la IA de Groq en un solo paso..."):
-            resultado_ia = analizar_lote_cvs_cached(payload_ia, puesto, exp_minima, palabras_input, api_key)
+            with st.spinner(f"Analizando [{idx+1}/{len(archivos_pdf)}] {archivo.name}..."):
+                datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
             
-        if resultado_ia and "candidatos" in resultado_ia:
-            dicc_resultados = {c["id"]: c for c in resultado_ia["candidatos"]}
-            
-            lista_candidatos = []
-            for cv in cvs_datos:
-                datos_ia = dicc_resultados.get(cv["id"], {})
+            if datos_ia:
+                # Calcular la puntuación de forma ultra-rápida según los filtros actuales
+                score = calcular_match_local(datos_ia, texto_completo, puesto, exp_minima, palabras_input)
+                
                 lista_candidatos.append({
-                    "id": cv["id"],
-                    "Nombre Archivo": cv["nombre_archivo"],
+                    "id": idx,
+                    "Nombre Archivo": archivo.name,
                     "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-                    "Puntuación (%)": datos_ia.get("puntuacion_match", 0),
+                    "Puntuación (%)": score,
                     "Años Exp.": datos_ia.get("anos_experiencia", 0),
                     "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
                     "Email": datos_ia.get("email", "No encontrado"),
                     "Teléfono": datos_ia.get("telefono", "No encontrado"),
                     "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
                     "Habilidades": ", ".join(datos_ia.get("habilidades_clave", [])),
-                    "Texto": cv["texto"],
-                    "Bytes": cv["bytes"]
+                    "Texto": texto_completo,
+                    "Bytes": bytes_pdf
                 })
 
+        if lista_candidatos:
+            # Ordenar ranking por puntuación
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
             # TABLA COMPARATIVA
