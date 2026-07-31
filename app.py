@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs Pro", page_icon=" ", layout="wide")
+st.set_page_config(page_title="Analizador de CVs Pro", page_icon="", layout="wide")
 
 # CSS personalizado para corregir tamaños y evitar cortes visuales
 st.markdown("""
@@ -27,7 +27,7 @@ st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("🔑 Configuración de IA")
+st.sidebar.header("Configuración de IA")
 
 api_key_secret = st.secrets.get("GROQ_API_KEY", "")
 if api_key_secret:
@@ -43,7 +43,7 @@ exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titulación:", value="", placeholder="Ej: Máster, Python, Inglés...")
 
 
-# --- EXTRAER DATOS DEL CV CON IA (PROMPT Y EXTRACCIÓN SEGURO) ---
+# --- EXTRAER DATOS DEL CV CON IA ---
 @st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
@@ -153,26 +153,21 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
         
         pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada. Usa el botón de arriba para abrir el PDF.</p></object>'
         st.markdown(pdf_display, unsafe_allow_html=True)
-    except Exception as e:
+    except Exception:
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
 
-def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
+def procesar_un_cv(archivo, idx, api_key):
     bytes_pdf = archivo.getvalue()
     texto_completo = extraer_texto_pdf(bytes_pdf)
     datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
     
     if datos_ia:
-        score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
-        
-        # Limpieza de ubicación por si cuela números
         ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
-        
         return {
             "id": idx,
             "Nombre Archivo": archivo.name,
             "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-            "Puntuación (%)": score,
             "Ubicación": ub_limpia,
             "Años Exp.": datos_ia.get("anos_experiencia", 0),
             "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
@@ -183,9 +178,11 @@ def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, p
             "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
             "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
             "Texto": texto_completo,
-            "Bytes": bytes_pdf
+            "Bytes": bytes_pdf,
+            "datos_raw_ia": datos_ia
         }
     return None
+
 
 # --- CARGADOR DE ARCHIVOS ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
@@ -194,21 +191,18 @@ if archivos_pdf:
     if not api_key:
         st.warning("⚠️ Por favor, ingresa tu Groq API Key en la barra lateral para iniciar el análisis.")
     else:
-        # Guardar en session_state para evitar sobreescritura al pulsar ENTER en el editor
         nombres_archivos = [f.name for f in archivos_pdf]
-        if "lista_candidatos" not in st.session_state or st.session_state.get("archivos_cargados") != nombres_archivos:
+        if "lista_base_cvs" not in st.session_state or st.session_state.get("archivos_cargados") != nombres_archivos:
             lista_temp = []
             progreso = st.progress(0)
             estado_texto = st.empty()
             total_archivos = len(archivos_pdf)
             
-            estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo...")
+            estado_texto.info(f"⚡ Analizando {total_archivos} CVs con IA...")
             
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [
-                    executor.submit(
-                        procesar_un_cv, archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input
-                    )
+                    executor.submit(procesar_un_cv, archivo, idx, api_key)
                     for idx, archivo in enumerate(archivos_pdf)
                 ]
                 
@@ -223,32 +217,54 @@ if archivos_pdf:
             progreso.empty()
             estado_texto.empty()
             
-            st.session_state["lista_candidatos"] = sorted(lista_temp, key=lambda x: x["Puntuación (%)"], reverse=True)
+            st.session_state["lista_base_cvs"] = lista_temp
             st.session_state["archivos_cargados"] = nombres_archivos
 
-        lista_candidatos = st.session_state["lista_candidatos"]
+        # Recalcular puntuación en tiempo real cuando cambien los filtros
+        lista_base = st.session_state.get("lista_base_cvs", [])
+        lista_candidatos = []
+        
+        for cand in lista_base:
+            cand_copy = cand.copy()
+            score = calcular_match_local(
+                cand_copy["datos_raw_ia"], 
+                cand_copy["Texto"], 
+                puesto, 
+                ubicacion_input, 
+                exp_minima, 
+                palabras_input
+            )
+            cand_copy["Puntuación (%)"] = score
+            lista_candidatos.append(cand_copy)
+
+        # Ordenar por el score actualizado
+        lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
         if lista_candidatos:
-            # TABLA COMPARATIVA EDITABLE
+            # TABLA COMPARATIVA EDITABLE (ÚNICO BLOQUE)
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA (Editable)")
             
-            cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
+            cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia", "datos_raw_ia"]
             df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
             
-            # Asignar key='tabla_cvs' conserva los cambios aunque presiones ENTER
-            df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed", key="tabla_cvs")
+            # Reordenar columnas para que Puntuación esté al principio
+            cols_order = ["Candidato", "Puntuación (%)", "Ubicación", "Años Exp.", "Máster", "Titulación", "Email", "Teléfono", "Nombre Archivo"]
+            cols_order = [c for c in cols_order if c in df_exportar.columns] + [c for c in df_exportar.columns if c not in cols_order]
+            df_exportar = df_exportar[cols_order]
+
+            df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed", key="tabla_cvs_main")
             
-            # Exportación CSV limpia con los cambios manuales conservados
             csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             st.download_button(
                 label="📥 Descargar Reporte Completo (CSV)",
                 data=csv_data,
                 file_name="analisis_cv_ia.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="btn_descarga_csv_main"
             )
 
-            # DESGLOSE INDIVIDUAL
+            # DESGLOSE INDIVIDUAL (ÚNICO BLOQUE)
             st.markdown("---")
             st.subheader("🏆 Evaluación Detallada")
             
@@ -292,68 +308,3 @@ if archivos_pdf:
                         mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}_{i}")
-
-            # TABLA COMPARATIVA
-            st.markdown("---")
-            st.subheader("📊 Tabla Comparativa Generada por IA")
-            
-            cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
-            df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
-            df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
-            
-            # Exportación CSV limpia sin romper tildes ni eñes en Excel
-            csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
-            st.download_button(
-                label="📥 Descargar Reporte Completo (CSV)",
-                data=csv_data,
-                file_name="analisis_cv_ia.csv",
-                mime="text/csv"
-            )
-
-            # DESGLOSE INDIVIDUAL
-            st.markdown("---")
-            st.subheader("Evaluación Detallada")
-            
-            for i, cand in enumerate(lista_candidatos, start=1):
-                score = cand["Puntuación (%)"]
-                badge = "🟢 TOP MATCH" if score >= 80 else ("🟡 POTENCIAL" if score >= 50 else "🔴 NO ENCAJA")
-
-                with st.expander(f"#{i} {badge} | {score}% — {cand['Candidato']} ({cand['Nombre Archivo']})"):
-                    st.progress(score / 100)
-                    
-                    # Ficha visual con datos sin cortes
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown(f"📧 **Email:** `{cand['Email']}`")
-                        st.markdown(f"📞 **Teléfono:** `{cand['Teléfono']}`")
-                        st.markdown(f"📍 **Ubicación:** `{cand['Ubicación']}`")
-                    with col2:
-                        st.markdown(f"⏳ **Experiencia Total:** `{cand['Años Exp.']} años`")
-                        st.markdown(f"🎓 **Titulación Superior:** `{cand['Titulación']}` | 🎓 **Máster:** `{cand['Máster']}`")
-
-                    st.write("**Resumen Ejecutivo de la IA:**")
-                    st.info(cand["Resumen IA"])
-                    
-                    # Renderizado blindado del desglose (evita que falle si la IA devuelve texto o dict)
-                    st.write("**💼 Historial de Puestos / Experiencia Desglosada:**")
-                    desglose = cand.get("Desglose Experiencia", [])
-                    
-                    if desglose and isinstance(desglose, list):
-                        for exp in desglose:
-                            if isinstance(exp, dict):
-                                puesto_emp = exp.get("puesto_empresa", "Puesto no especificado")
-                                duracion = exp.get("duracion", "Tiempo no especificado")
-                                st.markdown(f"- **{puesto_emp}**: `{duracion}`")
-                            elif isinstance(exp, str):
-                                st.markdown(f"- {exp}")
-                    else:
-                        st.write("No se detectó un desglose de puestos específicos en el CV.")
-                    
-                    st.write(f"**💡 Habilidades Detectadas:** {cand['Habilidades']}")
-                    
-                    # Pestañas de PDF y texto extraído
-                    tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
-                    with tab_pdf:
-                        mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
-                    with tab_texto:
-                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
