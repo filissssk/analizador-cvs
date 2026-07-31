@@ -266,7 +266,7 @@ if archivos_pdf:
 
             # DESGLOSE INDIVIDUAL (ÚNICO BLOQUE)
             st.markdown("---")
-            st.subheader("🏆 Evaluación Detallada")
+            st.subheader("Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -284,7 +284,7 @@ if archivos_pdf:
                         st.markdown(f"⏳ **Experiencia Total:** `{cand['Años Exp.']} años`")
                         st.markdown(f"🎓 **Titulación Superior:** `{cand['Titulación']}` | 🎓 **Máster:** `{cand['Máster']}`")
 
-                    st.write("**🤖 Resumen Ejecutivo de la IA:**")
+                    st.write("**Resumen Ejecutivo de la IA:**")
                     st.info(cand["Resumen IA"])
                     
                     st.write("**💼 Historial de Puestos / Experiencia Desglosada:**")
