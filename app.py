@@ -187,8 +187,6 @@ def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, p
         }
     return None
 
-
-# --- CARGADOR DE ARCHIVOS ---
 # --- CARGADOR DE ARCHIVOS ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
 
@@ -231,6 +229,7 @@ if archivos_pdf:
         lista_candidatos = st.session_state["lista_candidatos"]
 
         if lista_candidatos:
+            
             # TABLA COMPARATIVA EDITABLE
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA (Editable)")
@@ -294,23 +293,6 @@ if archivos_pdf:
                         mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
-
-            # TABLA COMPARATIVA
-            st.markdown("---")
-            st.subheader("📊 Tabla Comparativa Generada por IA")
-            
-            cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
-            df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
-            df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
-            
-            # Exportación CSV limpia sin romper tildes ni eñes en Excel
-            csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
-            st.download_button(
-                label="📥 Descargar Reporte Completo (CSV)",
-                data=csv_data,
-                file_name="analisis_cv_ia.csv",
-                mime="text/csv"
-            )
 
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
