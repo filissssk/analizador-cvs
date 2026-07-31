@@ -187,8 +187,6 @@ def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, p
         }
     return None
 
-
-# --- CARGADOR DE ARCHIVOS ---
 # --- CARGADOR DE ARCHIVOS ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
 
@@ -293,7 +291,7 @@ if archivos_pdf:
                     with tab_pdf:
                         mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
-                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
+                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}_{i}")
 
             # TABLA COMPARATIVA
             st.markdown("---")
