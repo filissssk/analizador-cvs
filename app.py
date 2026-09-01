@@ -1,16 +1,3 @@
-Este error de sintaxis (`SyntaxError: unterminated string literal`) ocurre porque al copiar el código se mezcló una parte de una línea de texto (`o leído por la app", cand["Texto"]...`) al final de la línea del `st.error(...)`, dejando comillas abiertas y un texto corrupto en la línea 276.
-
-Además, en el entorno de Streamlit Cloud suele haber caracteres invisibles (`\xa0` / espacios de no separación) al copiar texto desde un navegador.
-
-Aquí tienes el **código 100% limpio y corregido**.
-
-Para aplicarlo sin arrastrar errores anteriores:
-
-1. Abre `app.py`.
-2. **Borra todo su contenido** (Ctrl + A y Suprimir).
-3. Copia y pega exactamente este bloque:
-
-```python
 import streamlit as st
 import pandas as pd
 import base64
