@@ -195,10 +195,12 @@ def procesar_un_cv(archivo, idx, api_key):
         bytes_pdf = archivo.getvalue()
         texto_completo = extraer_texto_pdf(bytes_pdf)
         
-        if not texto_completo.strip():
-            texto_completo = f"No se pudo extraer texto del archivo {archivo.name}"
-            
-        datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key) or {}
+        # SI EL PDF ESTÁ ESCANEADO O PDF_UTILS FALLA:
+        if not texto_completo or not texto_completo.strip():
+            st.error(f"❌ El archivo '{archivo.name}' no contiene texto extraíble (puede ser una imagen o PDF escaneado).")
+            datos_ia = {}
+        else:
+            datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key) or {}
         
         res = {
             "id": idx,
@@ -213,7 +215,7 @@ def procesar_un_cv(archivo, idx, api_key):
             "Teléfono": datos_ia.get("telefono", "No encontrado"),
             "Resumen IA": datos_ia.get("resumen", "Sin resumen disponible"),
             "Habilidades": str(datos_ia.get("habilidades", "")),
-            "Texto": texto_completo,
+            "Texto": texto_completo if texto_completo else "SIN TEXTO EXTRAÍDO",
             "Bytes": bytes_pdf,
             "datos_raw_ia": datos_ia
         }
