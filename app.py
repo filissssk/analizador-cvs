@@ -1,3 +1,16 @@
+Este error de sintaxis (`SyntaxError: unterminated string literal`) ocurre porque al copiar el código se mezcló una parte de una línea de texto (`o leído por la app", cand["Texto"]...`) al final de la línea del `st.error(...)`, dejando comillas abiertas y un texto corrupto en la línea 276.
+
+Además, en el entorno de Streamlit Cloud suele haber caracteres invisibles (`\xa0` / espacios de no separación) al copiar texto desde un navegador.
+
+Aquí tienes el **código 100% limpio y corregido**.
+
+Para aplicarlo sin arrastrar errores anteriores:
+
+1. Abre `app.py`.
+2. **Borra todo su contenido** (Ctrl + A y Suprimir).
+3. Copia y pega exactamente este bloque:
+
+```python
 import streamlit as st
 import pandas as pd
 import base64
@@ -213,7 +226,7 @@ if archivos_pdf:
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA")
             
-            # Prepara el DataFrame omitiendo columnas binarias/internas
+            # Prepara el DataFrame omitiendo columnas internas
             cols_ocultar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
             df_mostrar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_ocultar if c in pd.DataFrame(lista_candidatos).columns])
             
@@ -273,4 +286,8 @@ if archivos_pdf:
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
         else:
-            st.error("No se pudo obtener información de los PDFs cargados. Verifica que la API Key de Groq sea válida y que los documentos contengan texto seleccionable.")o leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
+            st.error("No se pudo obtener información de los PDFs cargados. Verifica la API Key y que el PDF contenga texto seleccionable.")
+
+```
+
+Haz *commit* y *push* del archivo limpio a GitHub o guarda los cambios en tu servidor local. El error desaparecerá por completo.
