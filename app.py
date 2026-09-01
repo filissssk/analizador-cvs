@@ -119,7 +119,6 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
         menciones = sum(1 for p in puesto_palabras if p in texto_cv.lower())
         if menciones > 0:
             puntos += 30
-
     if ubicacion_req.strip():
         max_puntos += 20
         ub_buscada = ubicacion_req.strip().lower()
