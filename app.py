@@ -2,13 +2,11 @@ import streamlit as st
 import pandas as pd
 import base64
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
 st.set_page_config(page_title="Analizador de CVs Pro", page_icon="🧠", layout="wide")
 
-# CSS personalizado para corregir tamaños y evitar cortes visuales
 st.markdown("""
 <style>
     [data-testid="stMetricLabel"] { font-size: 13px !important; }
@@ -44,7 +42,6 @@ palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titul
 
 
 # --- EXTRAER DATOS DEL CV CON IA ---
-@st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
         client = Groq(api_key=api_key)
@@ -89,7 +86,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         return json.loads(chat_completion.choices[0].message.content)
         
     except Exception as e:
-        st.error(f"Error al analizar con Groq: {e}")
+        st.error(f"Error al conectar con la API de Groq: {e}")
         return None
 
 
@@ -157,36 +154,7 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
 
-def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
-    bytes_pdf = archivo.getvalue()
-    texto_completo = extraer_texto_pdf(bytes_pdf)
-    datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
-    
-    if datos_ia:
-        score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
-        ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
-        
-        return {
-            "id": idx,
-            "Nombre Archivo": archivo.name,
-            "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-            "Puntuación (%)": score,
-            "Ubicación": ub_limpia,
-            "Años Exp.": datos_ia.get("anos_experiencia", 0),
-            "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
-            "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
-            "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
-            "Email": datos_ia.get("email", "No encontrado"),
-            "Teléfono": datos_ia.get("telefono", "No encontrado"),
-            "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
-            "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
-            "Texto": texto_completo,
-            "Bytes": bytes_pdf
-        }
-    return None
-
-
-# --- CARGADOR DE ARCHIVOS ---
+# --- CARGADOR Y PROCESAMIENTO ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
 
 if archivos_pdf:
@@ -198,40 +166,61 @@ if archivos_pdf:
         estado_texto = st.empty()
         total_archivos = len(archivos_pdf)
         
-        estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo...")
-        
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [
-                executor.submit(
-                    procesar_un_cv, archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input
-                )
-                for idx, archivo in enumerate(archivos_pdf)
-            ]
+        for idx, archivo in enumerate(archivos_pdf):
+            estado_texto.info(f"⏳ Procesando CV ({idx + 1}/{total_archivos}): **{archivo.name}**")
             
-            completados = 0
-            for future in as_completed(futures):
-                res = future.result()
-                if res:
-                    lista_candidatos.append(res)
-                completados += 1
-                progreso.progress(completados / total_archivos)
+            bytes_pdf = archivo.getvalue()
+            texto_completo = extraer_texto_pdf(bytes_pdf)
+            
+            if not texto_completo or len(texto_completo.strip()) < 20:
+                st.warning(f"⚠️ El archivo '{archivo.name}' no contiene texto extraíble (puede ser un PDF escaneado como imagen).")
+                continue
+                
+            datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
+            
+            if datos_ia:
+                score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
+                ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
+                
+                lista_candidatos.append({
+                    "id": idx,
+                    "Nombre Archivo": archivo.name,
+                    "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
+                    "Puntuación (%)": score,
+                    "Ubicación": ub_limpia,
+                    "Años Exp.": datos_ia.get("anos_experiencia", 0),
+                    "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
+                    "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
+                    "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
+                    "Email": datos_ia.get("email", "No encontrado"),
+                    "Teléfono": datos_ia.get("telefono", "No encontrado"),
+                    "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
+                    "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
+                    "Texto": texto_completo,
+                    "Bytes": bytes_pdf
+                })
+            
+            progreso.progress((idx + 1) / total_archivos)
         
         progreso.empty()
         estado_texto.empty()
 
         if lista_candidatos:
+            # Ordenar por puntuación descendente
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
-            # TABLA COMPARATIVA
+            # 1. TABLA COMPARATIVA
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA")
             
-            cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
-            df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
+            # Prepara el DataFrame omitiendo columnas binarias/internas
+            cols_ocultar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
+            df_mostrar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_ocultar if c in pd.DataFrame(lista_candidatos).columns])
             
-            df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
+            # Renderizado directo con st.dataframe
+            st.dataframe(df_mostrar, use_container_width=True)
                 
-            csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+            csv_data = df_mostrar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             st.download_button(
                 label="📥 Descargar Reporte Completo (CSV)",
                 data=csv_data,
@@ -239,9 +228,9 @@ if archivos_pdf:
                 mime="text/csv"
             )
 
-            # DESGLOSE INDIVIDUAL
+            # 2. DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("Evaluación Detallada")
+            st.subheader("Evaluación Detallada de Candidatos")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -283,3 +272,5 @@ if archivos_pdf:
                         mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
+        else:
+            st.error("No se pudo obtener información de los PDFs cargados. Verifica que la API Key de Groq sea válida y que los documentos contengan texto seleccionable.")o leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
