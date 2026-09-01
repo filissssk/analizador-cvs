@@ -218,6 +218,7 @@ def procesar_un_cv(archivo, idx, api_key):
             "datos_raw_ia": datos_ia
         }
         return res
+      
     except Exception as e:
         st.error(f"Error procesando {archivo.name}: {e}")
         return None
