@@ -44,7 +44,6 @@ palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titul
 
 
 # --- EXTRAER DATOS DEL CV CON IA ---
-@st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
         client = Groq(api_key=api_key)
@@ -63,9 +62,9 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
             "email": "email o 'No encontrado'",
             "telefono": "teléfono o 'No encontrado'",
             "ubicacion_candidato": "Sólo Ciudad o Provincia (Ej: Cartagena, Murcia) o 'No especificada'",
-            "anos_experiencia": número entero estimado de años de experiencia laboral total,
-            "tiene_master": true o false (true si posee Máster, Postgrado o Maestría),
-            "tiene_titulacion": true o false (estudios universitarios/superiores/grado),
+            "anos_experiencia": 0,
+            "tiene_master": true/false,
+            "tiene_titulacion": true/false,
             "experiencias_desglosadas": [
                 {{
                     "puesto_empresa": "Nombre del puesto y empresa",
@@ -89,7 +88,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         return json.loads(chat_completion.choices[0].message.content)
         
     except Exception as e:
-        st.error(f"Error al analizar con Groq: {e}")
+        print(f"Error al analizar con Groq: {e}")
         return None
 
 
@@ -137,7 +136,7 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
             elif r in texto_cv.lower() or any(r in str(h).lower() for h in datos_ia.get("habilidades_clave", [])):
                 puntos_req += 1
                 
-        puntos += 25 * (puntos_req / len(req_lista))
+        puntos += 25 * (puntos_req / max(1, len(req_lista)))
 
     if max_puntos == 0:
         return 100
@@ -158,29 +157,32 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
 
 
 def procesar_un_cv(archivo, idx, api_key):
-    bytes_pdf = archivo.getvalue()
-    texto_completo = extraer_texto_pdf(bytes_pdf)
-    datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
-    
-    if datos_ia:
-        ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
-        return {
-            "id": idx,
-            "Nombre Archivo": archivo.name,
-            "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-            "Ubicación": ub_limpia,
-            "Años Exp.": datos_ia.get("anos_experiencia", 0),
-            "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
-            "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
-            "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
-            "Email": datos_ia.get("email", "No encontrado"),
-            "Teléfono": datos_ia.get("telefono", "No encontrado"),
-            "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
-            "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
-            "Texto": texto_completo,
-            "Bytes": bytes_pdf,
-            "datos_raw_ia": datos_ia
-        }
+    try:
+        bytes_pdf = archivo.getvalue()
+        texto_completo = extraer_texto_pdf(bytes_pdf)
+        datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
+        
+        if datos_ia:
+            ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
+            return {
+                "id": idx,
+                "Nombre Archivo": archivo.name,
+                "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
+                "Ubicación": ub_limpia,
+                "Años Exp.": datos_ia.get("anos_experiencia", 0),
+                "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
+                "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
+                "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
+                "Email": datos_ia.get("email", "No encontrado"),
+                "Teléfono": datos_ia.get("telefono", "No encontrado"),
+                "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
+                "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
+                "Texto": texto_completo,
+                "Bytes": bytes_pdf,
+                "datos_raw_ia": datos_ia
+            }
+    except Exception as e:
+        print(f"Error procesando {archivo.name}: {e}")
     return None
 
 
@@ -220,7 +222,6 @@ if archivos_pdf:
             st.session_state["lista_base_cvs"] = lista_temp
             st.session_state["archivos_cargados"] = nombres_archivos
 
-        # Recalcular puntuación en tiempo real cuando cambien los filtros
         lista_base = st.session_state.get("lista_base_cvs", [])
         lista_candidatos = []
         
@@ -237,18 +238,15 @@ if archivos_pdf:
             cand_copy["Puntuación (%)"] = score
             lista_candidatos.append(cand_copy)
 
-        # Ordenar por el score actualizado
         lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
         if lista_candidatos:
-            # TABLA COMPARATIVA EDITABLE (ÚNICO BLOQUE)
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA (Editable)")
             
             cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia", "datos_raw_ia"]
             df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
             
-            # Reordenar columnas para que Puntuación esté al principio
             cols_order = ["Candidato", "Puntuación (%)", "Ubicación", "Años Exp.", "Máster", "Titulación", "Email", "Teléfono", "Nombre Archivo"]
             cols_order = [c for c in cols_order if c in df_exportar.columns] + [c for c in df_exportar.columns if c not in cols_order]
             df_exportar = df_exportar[cols_order]
@@ -264,7 +262,6 @@ if archivos_pdf:
                 key="btn_descarga_csv_main"
             )
 
-            # DESGLOSE INDIVIDUAL (ÚNICO BLOQUE)
             st.markdown("---")
             st.subheader("Evaluación Detallada")
             
