@@ -190,7 +190,7 @@ def guardar_en_supabase(datos_cand):
         
 
 def procesar_un_cv(archivo, idx, api_key):
-  try:
+    try:
         bytes_pdf = archivo.getvalue()
         texto_completo = extraer_texto_pdf(bytes_pdf)
         
@@ -218,11 +218,10 @@ def procesar_un_cv(archivo, idx, api_key):
             "datos_raw_ia": datos_ia
         }
         return res
-      
-except Exception as e:
+
+    except Exception as e:
         st.error(f"Error procesando {archivo.name}: {e}")
         return None
-
 
 # --- CARGADOR DE ARCHIVOS ---
 archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], accept_multiple_files=True)
