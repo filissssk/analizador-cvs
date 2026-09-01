@@ -5,4 +5,4 @@ pdf2image
 pytesseract
 pillow
 groq
-supabase
+
