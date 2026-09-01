@@ -6,17 +6,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs Pro", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Analizador de CVs Pro", page_icon=" ", layout="wide")
 
-# --- AJUSTE DE TAMAÑO DE LETRA EN MÉTRICAS ---
+# CSS personalizado para corregir tamaños y evitar cortes visuales
 st.markdown("""
     <style>
     [data-testid="stMetricLabel"] { font-size: 13px !important; }
-    [data-testid="stMetricValue"] { font-size: 16px !important; }
+    [data-testid="stMetricValue"] { font-size: 15px !important; }
+    .info-card {
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 8px;
+        border-left: 4px solid #2e7d32;
+        margin-bottom: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🧠 Selección Inteligente de CVs")
+st.title("Selección Inteligente de CVs")
 st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.")
 
 # --- BARRA LATERAL ---
@@ -29,36 +36,40 @@ if api_key_secret:
 else:
     api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
 
-st.sidebar.header("🎯 Filtros de Selección")
+st.sidebar.header("Filtros de Selección")
 puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: Profesor de Marketing, Contable...")
-ubicacion_input = st.sidebar.text_input("📍 Ubicación / Ciudad:", value="", placeholder="Ej: Murcia, Elche, Alicante...")
+ubicacion_input = st.sidebar.text_input("📍 Localidad / Ciudad:", value="", placeholder="Ej: Murcia, Elche, Cartagena...")
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titulación:", value="", placeholder="Ej: Máster, Python, Inglés...")
 
 
-# --- EXTRAER DATOS DEL CV CON IA (1 SOLA VEZ CON CACHÉ) ---
+# --- EXTRAER DATOS DEL CV CON IA (PROMPT Y EXTRACCIÓN SEGURO) ---
 @st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
         client = Groq(api_key=api_key)
         
         prompt = f"""
-        Eres un extractor de datos de Recursos Humanos.
-        Analiza el siguiente texto de un currículum y extrae la información clave en JSON.
+        Eres un extractor de datos de Recursos Humanos extremadamente preciso.
+        Analiza el siguiente texto de un currículum y extrae la información clave en formato JSON.
 
-        Debes responder ÚNICAMENTE con un objeto JSON válido con esta estructura exacta:
+        IMPORTANTE: 
+        - En 'ubicacion_candidato' extrae ÚNICAMENTE la ciudad o provincia. NUNCA incluyas teléfonos ni emails en este campo.
+        - En 'experiencias_desglosadas' devuelve SIEMPRE una lista de objetos JSON con las claves 'puesto_empresa' y 'duracion'.
+
+        Estructura JSON exacta requerida:
         {{
             "nombre_candidato": "Nombre completo o 'No identificado'",
             "email": "email o 'No encontrado'",
             "telefono": "teléfono o 'No encontrado'",
-            "ubicacion_candidato": "Ciudad, provincia o dirección detectada o 'No especificada'",
+            "ubicacion_candidato": "Sólo Ciudad o Provincia (Ej: Cartagena, Murcia) o 'No especificada'",
             "anos_experiencia": número entero estimado de años de experiencia laboral total,
             "tiene_master": true o false (true si posee Máster, Postgrado o Maestría),
             "tiene_titulacion": true o false (estudios universitarios/superiores/grado),
             "experiencias_desglosadas": [
                 {{
-                    "puesto_empresa": "Nombre del puesto y/o empresa",
-                    "duracion": "Duración o fechas (Ej: 2 años / 2020-2022)"
+                    "puesto_empresa": "Nombre del puesto y empresa",
+                    "duracion": "Años o rango de fechas (Ej: 2 años / 2020-2022)"
                 }}
             ],
             "resumen_ejecutivo": "Un resumen breve de 2 frases sobre el perfil del candidato.",
@@ -101,13 +112,17 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
     if ubicacion_req.strip():
         max_puntos += 20
         ub_buscada = ubicacion_req.strip().lower()
-        ub_detectada = datos_ia.get("ubicacion_candidato", "").lower()
+        ub_detectada = str(datos_ia.get("ubicacion_candidato", "")).lower()
         if ub_buscada in ub_detectada or ub_buscada in texto_cv.lower():
             puntos += 20
 
     if exp_req > 0:
         max_puntos += 25
         exp_candidato = datos_ia.get("anos_experiencia", 0)
+        try:
+            exp_candidato = int(exp_candidato)
+        except Exception:
+            exp_candidato = 0
         puntos += 25 * min(1.0, exp_candidato / exp_req)
 
     if requisitos_req.strip():
@@ -119,7 +134,7 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
             if "master" in r or "máster" in r:
                 if datos_ia.get("tiene_master"):
                     puntos_req += 1
-            elif r in texto_cv.lower() or any(r in h.lower() for h in datos_ia.get("habilidades_clave", [])):
+            elif r in texto_cv.lower() or any(r in str(h).lower() for h in datos_ia.get("habilidades_clave", [])):
                 puntos_req += 1
                 
         puntos += 25 * (puntos_req / len(req_lista))
@@ -138,11 +153,10 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
         
         pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada. Usa el botón de arriba para abrir el PDF.</p></object>'
         st.markdown(pdf_display, unsafe_allow_html=True)
-    except Exception:
+    except Exception as e:
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
 
-# --- FUNCIÓN PARA PROCESAR UN SÓLO CV (PARA USAR EN PARALELO) ---
 def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
     bytes_pdf = archivo.getvalue()
     texto_completo = extraer_texto_pdf(bytes_pdf)
@@ -150,12 +164,16 @@ def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, p
     
     if datos_ia:
         score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
+        
+        # Limpieza de ubicación por si cuela números
+        ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
+        
         return {
             "id": idx,
             "Nombre Archivo": archivo.name,
             "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
             "Puntuación (%)": score,
-            "Ubicación": datos_ia.get("ubicacion_candidato", "No especificada"),
+            "Ubicación": ub_limpia,
             "Años Exp.": datos_ia.get("anos_experiencia", 0),
             "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
             "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
@@ -163,7 +181,7 @@ def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, p
             "Email": datos_ia.get("email", "No encontrado"),
             "Teléfono": datos_ia.get("telefono", "No encontrado"),
             "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
-            "Habilidades": ", ".join(datos_ia.get("habilidades_clave", [])),
+            "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
             "Texto": texto_completo,
             "Bytes": bytes_pdf
         }
@@ -179,14 +197,12 @@ if archivos_pdf:
     else:
         lista_candidatos = []
         
-        # Barra de progreso para informar al usuario
         progreso = st.progress(0)
         estado_texto = st.empty()
         total_archivos = len(archivos_pdf)
         
         estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo...")
         
-        # PROCESAMIENTO EN PARALELO HASTA 5 CVS AL MISMO TIEMPO
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [
                 executor.submit(
@@ -217,6 +233,7 @@ if archivos_pdf:
             df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
             df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
             
+            # Exportación CSV limpia sin romper tildes ni eñes en Excel
             csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             st.download_button(
                 label="📥 Descargar Reporte Completo (CSV)",
@@ -227,7 +244,7 @@ if archivos_pdf:
 
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("🏆 Evaluación Detallada")
+            st.subheader("Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -236,19 +253,39 @@ if archivos_pdf:
                 with st.expander(f"#{i} {badge} | {score}% — {cand['Candidato']} ({cand['Nombre Archivo']})"):
                     st.progress(score / 100)
                     
-                    col1, col2, col3, col4, col5 = st.columns(5)
-                    col1.metric("Email", cand["Email"])
-                    col2.metric("Teléfono", cand["Teléfono"])
-                    col3.metric("Ubicación", cand["Ubicación"])
-                    col4.metric("Experiencia IA", f"{cand['Años Exp.']} años")
-                    col5.metric("Máster", cand["Máster"])
-                    
-                    st.write("**🤖 Resumen Ejecutivo de la IA:**")
+                    # Ficha visual con datos sin cortes
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"📧 **Email:** `{cand['Email']}`")
+                        st.markdown(f"📞 **Teléfono:** `{cand['Teléfono']}`")
+                        st.markdown(f"📍 **Ubicación:** `{cand['Ubicación']}`")
+                    with col2:
+                        st.markdown(f"⏳ **Experiencia Total:** `{cand['Años Exp.']} años`")
+                        st.markdown(f"🎓 **Titulación Superior:** `{cand['Titulación']}` | 🎓 **Máster:** `{cand['Máster']}`")
+
+                    st.write("**Resumen Ejecutivo de la IA:**")
                     st.info(cand["Resumen IA"])
                     
+                    # Renderizado blindado del desglose (evita que falle si la IA devuelve texto o dict)
                     st.write("**💼 Historial de Puestos / Experiencia Desglosada:**")
                     desglose = cand.get("Desglose Experiencia", [])
-                    if desglose:
+                    
+                    if desglose and isinstance(desglose, list):
                         for exp in desglose:
-                            puesto_emp = exp.get("puesto_empresa", "Puesto no especificado")
-                            duracion = exp.
+                            if isinstance(exp, dict):
+                                puesto_emp = exp.get("puesto_empresa", "Puesto no especificado")
+                                duracion = exp.get("duracion", "Tiempo no especificado")
+                                st.markdown(f"- **{puesto_emp}**: `{duracion}`")
+                            elif isinstance(exp, str):
+                                st.markdown(f"- {exp}")
+                    else:
+                        st.write("No se detectó un desglose de puestos específicos en el CV.")
+                    
+                    st.write(f"**💡 Habilidades Detectadas:** {cand['Habilidades']}")
+                    
+                    # Pestañas de PDF y texto extraído
+                    tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
+                    with tab_pdf:
+                        mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
+                    with tab_texto:
+                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
