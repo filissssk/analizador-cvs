@@ -5,6 +5,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from pdf_utils import extraer_texto_pdf
+from supabase import create_client, Client 
 
 st.set_page_config(page_title="Analizador de CVs Pro", page_icon="", layout="wide")
 
@@ -30,12 +31,22 @@ st.write("Analiza, evalúa y clasifica candidaturas con Inteligencia Artificial.
 st.sidebar.header("Configuración de IA")
 
 api_key_secret = st.secrets.get("GROQ_API_KEY", "")
+supabase_url = st.secrets.get("SUPABASE_URL", "")
+supabase_key = st.secrets.get("SUPABASE_KEY", "")
 if api_key_secret:
     api_key = api_key_secret
     st.sidebar.success("✅ API Key cargada automáticamente")
 else:
     api_key = st.sidebar.text_input("Ingresa tu Groq API Key:", type="password")
-
+# Conexión con Supabase 
+supabase : Client = None
+if supabase_url and supabase_key:
+    try:
+        supabase = create_client(supabase_url, supabase_key)
+        st.sidebar.success("✅ Conectado a Supabase")
+    except Exception as e: 
+        st.sidebar.error(f"Error conectando a Supabase: {e}")
+        
 st.sidebar.header("Filtros de Selección")
 puesto = st.sidebar.text_input("Puesto a evaluar:", value="", placeholder="Ej: Profesor de Marketing, Contable...")
 ubicacion_input = st.sidebar.text_input("📍 Localidad / Ciudad:", value="", placeholder="Ej: Murcia, Elche, Cartagena...")
@@ -156,15 +167,41 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
     except Exception:
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
+def guardar_en_supabase(datos_cand):
+    if not supabase:
+        return
+    try:
+        payload = {
+            "nombre_archivo": datos_cand.get("Nombre Archivo"),
+            "candidato": datos_cand.get("Candidato"),
+            "puntuacion": datos_cand.get("Puntuación (%)", 0),
+            "ubicacion": datos_cand.get("Ubicación"),
+            "anos_exp": datos_cand.get("Años Exp.", 0),
+            "titulacion": datos_cand.get("Titulación"),
+            "master": datos_cand.get("Máster"),
+            "email": datos_cand.get("Email"),
+            "telefono": datos_cand.get("Teléfono"),
+            "resumen": datos_cand.get("Resumen IA"),
+            "habilidades": datos_cand.get("Habilidades"),
+            "texto": datos_cand.get("Texto")
+        }
+        supabase.table("candidatos").insert(payload).execute()
+    except Exception as e:
+        st.warning(f"No se pudo guardar {datos_cand.get('Candidato')} en Supabase: {e}")
+        
 
 def procesar_un_cv(archivo, idx, api_key):
-    bytes_pdf = archivo.getvalue()
-    texto_completo = extraer_texto_pdf(bytes_pdf)
-    datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
-    
-    if datos_ia:
+  try:
+        bytes_pdf = archivo.getvalue()
+        texto_completo = extraer_texto_pdf(bytes_pdf)
+        
+        if not texto_completo.strip():
+            texto_completo = f"No se pudo extraer texto del archivo {archivo.name}"
+            
+        datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key) or {}
         ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
-        return {
+        
+        res = {
             "id": idx,
             "Nombre Archivo": archivo.name,
             "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
@@ -175,13 +212,16 @@ def procesar_un_cv(archivo, idx, api_key):
             "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
             "Email": datos_ia.get("email", "No encontrado"),
             "Teléfono": datos_ia.get("telefono", "No encontrado"),
-            "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
+            "Resumen IA": datos_ia.get("resumen_ejecutivo", "Sin resumen disponible"),
             "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
             "Texto": texto_completo,
             "Bytes": bytes_pdf,
             "datos_raw_ia": datos_ia
         }
-    return None
+        return res
+    except Exception as e:
+        st.error(f"Error procesando {archivo.name}: {e}")
+        return None
 
 
 # --- CARGADOR DE ARCHIVOS ---
@@ -241,6 +281,13 @@ if archivos_pdf:
         lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
 
         if lista_candidatos:
+            # BOTÓN OPCIONAL PARA GUARDAR EN SUPABASE
+            if supabase:
+                if st.button("💾 Guardar estos resultados en Supabase", key="btn_supabase"):
+                    for cand in lista_candidatos:
+                        guardar_en_supabase(cand)
+                    st.success("✅ ¡Candidatos guardados con éxito en la base de datos!")
+           
             # TABLA COMPARATIVA EDITABLE (ÚNICO BLOQUE)
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA (Editable)")
