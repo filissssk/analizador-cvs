@@ -219,7 +219,7 @@ def procesar_un_cv(archivo, idx, api_key):
         }
         return res
       
-    except Exception as e:
+except Exception as e:
         st.error(f"Error procesando {archivo.name}: {e}")
         return None
 
