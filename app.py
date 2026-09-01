@@ -55,36 +55,38 @@ palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titul
 
 
 # --- EXTRAER DATOS DEL CV CON IA ---
+
 @st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
     try:
         client = Groq(api_key=api_key)
         
         prompt = f"""
-        Eres un extractor de datos de Recursos Humanos extremadamente preciso.
-        Analiza el siguiente texto de un currículum y extrae la información clave en formato JSON.
+        Eres un sistema experto en extracción de currículums.
+        Lee detenidamente el texto suministrado y extrae la información requerida.
 
-        IMPORTANTE: 
-        - En 'ubicacion_candidato' extrae ÚNICAMENTE la ciudad o provincia. NUNCA incluyas teléfonos ni emails en este campo.
-        - En 'experiencias_desglosadas' devuelve SIEMPRE una lista de objetos JSON con las claves 'puesto_empresa' y 'duracion'.
+        INSTRUCCIONES CLAVE:
+        - "nombre_candidato": Busca el nombre propio de la persona al principio del texto.
+        - "email" y "telefono": Extrae la información de contacto si existe.
+        - "ubicacion_candidato": Extrae únicamente la ciudad o provincia.
+        - "anos_experiencia": Calcula o estima el número total de años trabajados (como número entero).
+        - "tiene_master": Devolver true si tiene Máster, Maestría o Postgrado. De lo contrario, false.
+        - "tiene_titulacion": Devolver true si tiene Grado, Licenciatura, Diplomatura o Formación Superior. De lo contrario, false.
 
-        Estructura JSON exacta requerida:
+        Responde ÚNICAMENTE en formato JSON con estas claves exactas:
         {{
-            "nombre_candidato": "Nombre completo o 'No identificado'",
-            "email": "email o 'No encontrado'",
-            "telefono": "teléfono o 'No encontrado'",
-            "ubicacion_candidato": "Sólo Ciudad o Provincia (Ej: Cartagena, Murcia) o 'No especificada'",
-            "anos_experiencia": número entero estimado de años de experiencia laboral total,
-            "tiene_master": true o false (true si posee Máster, Postgrado o Maestría),
-            "tiene_titulacion": true o false (estudios universitarios/superiores/grado),
+            "nombre_candidato": "Nombre completo",
+            "email": "email",
+            "telefono": "teléfono",
+            "ubicacion_candidato": "Ciudad/Provincia",
+            "anos_experiencia": 0,
+            "tiene_master": true/false,
+            "tiene_titulacion": true/false,
             "experiencias_desglosadas": [
-                {{
-                    "puesto_empresa": "Nombre del puesto y empresa",
-                    "duracion": "Años o rango de fechas (Ej: 2 años / 2020-2022)"
-                }}
+                {{"puesto_empresa": "Puesto - Empresa", "duracion": "Años/Fechas"}}
             ],
-            "resumen_ejecutivo": "Un resumen breve de 2 frases sobre el perfil del candidato.",
-            "habilidades_clave": ["lista", "de", "habilidades", "tecnologias", "idiomas"]
+            "resumen_ejecutivo": "Resumen breve",
+            "habilidades_clave": ["habilidad1", "habilidad2"]
         }}
 
         TEXTO DEL CV:
@@ -94,15 +96,16 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="llama-3.1-8b-instant",
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.1
         )
         
-        return json.loads(chat_completion.choices[0].message.content)
+        res_text = chat_completion.choices[0].message.content
+        return json.loads(res_text)
         
     except Exception as e:
-        st.error(f"Error al analizar con Groq: {e}")
+        print(f"Error en IA: {e}")
         return None
-
 
 # --- CÁLCULO DE MATCH LOCAL ---
 def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req, requisitos_req):
