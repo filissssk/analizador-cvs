@@ -84,7 +84,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         
         chat_completion = client.chat.completions.create( 
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant", 
+            model="mixtral-8x7b-32768",
             response_format={"type": "json_object"}
         )
         
