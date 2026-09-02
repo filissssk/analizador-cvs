@@ -99,6 +99,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
 
 def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req, requisitos_req):
     hay_filtros = bool(puesto_req.strip() or ubicacion_req.strip() or requisitos_req.strip() or exp_req > 0) 
+    if not hay_filtros:
         return 100 
 
     puntos = 0
