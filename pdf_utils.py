@@ -1,7 +1,7 @@
 import os
 import io
 import platform
-import streamlit as st  # <-- 1. AÑADIDO IMPORT STREAMLIT
+import streamlit as st
 
 import pdfplumber
 from pdf2image import convert_from_bytes
@@ -25,52 +25,79 @@ else:
     POPPLER_PATH = None
 
 
-# <-- 2. AÑADIDO EL DECORADOR DE CACHÉ AQUÍ
-@st.cache_data(show_spinner=False)
 def extraer_texto_pdf(archivo_input):
+    """
+    Extrae texto de un PDF usando:
+    1. pdfplumber (PDFs digitales)
+    2. OCR con pytesseract (PDFs escaneados)
+    SIN CACHE para evitar problemas con bytes.
+    """
+    print(f"    📖 Iniciando extracción de texto...")
     texto = ""
 
-    # 1. Lectura de los bytes del PDF
-    if isinstance(archivo_input, str):
-        with open(archivo_input, "rb") as f:
-            bytes_data = f.read()
-    elif isinstance(archivo_input, bytes):
-        bytes_data = archivo_input
-    else:
-        archivo_input.seek(0)
-        bytes_data = archivo_input.read()
-
-    # 2. Intentar extracción de texto directo (PDFs digitales)
     try:
-        with pdfplumber.open(io.BytesIO(bytes_data)) as pdf:
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    texto += t + "\n"
-    except Exception as e:
-        print(f"Error en extracción directa: {e}")
+        # 1. Convertir input a bytes
+        if isinstance(archivo_input, str):
+            with open(archivo_input, "rb") as f:
+                bytes_data = f.read()
+        elif isinstance(archivo_input, bytes):
+            bytes_data = archivo_input
+        else:
+            archivo_input.seek(0)
+            bytes_data = archivo_input.read()
 
-    # 3. Intentar OCR (PDFs escaneados o imagenes)
-    if not texto.strip():
+        print(f"    ✓ Bytes obtenidos ({len(bytes_data)} bytes)")
+
+        # 2. Intentar extracción de texto directo (PDFs digitales)
         try:
-            print("PDF de tipo imagen detectado. Aplicando OCR...")
-
-            if POPPLER_PATH:
-                paginas_img = convert_from_bytes(bytes_data, poppler_path=POPPLER_PATH)
-            else:
-                paginas_img = convert_from_bytes(bytes_data)
-
-            for img in paginas_img:
-                try:
-                    texto_pag = pytesseract.image_to_string(img, lang='spa')
-                except Exception as e_lang:
-                    print(f"Fallo idioma español en OCR ({e_lang}), reintentando por defecto...")
-                    texto_pag = pytesseract.image_to_string(img)
-                
-                if texto_pag:
-                    texto += texto_pag + "\n"
-
+            print(f"    📄 Intentando extracción con pdfplumber...")
+            with pdfplumber.open(io.BytesIO(bytes_data)) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    t = page.extract_text()
+                    if t:
+                        texto += t + "\n"
+            
+            if texto.strip():
+                print(f"    ✓ pdfplumber extrajo {len(texto)} caracteres")
         except Exception as e:
-            print(f"Error general en OCR: {e}")
+            print(f"    ⚠️ pdfplumber falló: {e}")
 
-    return texto.strip()
+        # 3. Intentar OCR (PDFs escaneados o imágenes)
+        if not texto.strip():
+            try:
+                print(f"    🖼️ PDF de tipo imagen detectado. Aplicando OCR...")
+
+                if POPPLER_PATH:
+                    paginas_img = convert_from_bytes(bytes_data, poppler_path=POPPLER_PATH)
+                else:
+                    paginas_img = convert_from_bytes(bytes_data)
+
+                print(f"    ✓ Convertidas {len(paginas_img)} páginas a imagen")
+
+                for idx, img in enumerate(paginas_img):
+                    try:
+                        texto_pag = pytesseract.image_to_string(img, lang='spa')
+                    except Exception as e_lang:
+                        print(f"    ⚠️ OCR español falló, reintentando por defecto...")
+                        texto_pag = pytesseract.image_to_string(img)
+                    
+                    if texto_pag:
+                        texto += texto_pag + "\n"
+                
+                if texto.strip():
+                    print(f"    ✓ OCR extrajo {len(texto)} caracteres")
+
+            except Exception as e:
+                print(f"    ❌ Error general en OCR: {e}")
+
+        if not texto.strip():
+            print(f"    ❌ NO se extrajo texto")
+            return ""
+
+        return texto.strip()
+
+    except Exception as e:
+        print(f"    ❌ EXCEPCIÓN en extraer_texto_pdf: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return ""
