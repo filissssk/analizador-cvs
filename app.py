@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq 
 from pdf_utils import extraer_texto_pdf
 
-st.set_page_config(page_title="Analizador de CVs Pro", page_icon=" ", layout="wide")  
+st.set_page_config(page_title="Analizador de CVs Pro", page_icon="📄", layout="wide")  
 
 # CSS personalizado para corregir tamaños y evitar cortes visuales
 
@@ -150,42 +150,45 @@ def calcular_match_local(datos_ia, texto_cv, puesto_req, ubicacion_req, exp_req,
 def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
     try:
         base64_pdf = base64.b64encode(bytes_data).decode('utf-8') 
-        pdf_href = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" download="{nombre_archivo}" style="display:inline-block; padding:8px 16px; background-color:#2e7d32; color:white; text-decoration:none; border-radius:6px; margin-bottom:12px; font-weight:bold;">📄 Abrir / Descargar PDF en nueva pestaña</a>'
+        pdf_href = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" download="{nombre_archivo}" style="display:inline-block; padding:8px 16px; background-color:#2e7d32; color:white; text-decoration:none; border-radius:5px;">📥 Descargar PDF</a>'
         st.markdown(pdf_href, unsafe_allow_html=True) 
         
-        pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada. Usa el botón de arriba para abrir el PDF.</p></object>'
+        pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada. Usa el botón de descarga.</p></object>'
         st.markdown(pdf_display, unsafe_allow_html=True) 
     except Exception as e:
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
 def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
-    bytes_pdf = archivo.getvalue() 
-    texto_completo = extraer_texto_pdf(bytes_pdf)
-    datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
-    
-    if datos_ia:
-        score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
+    try:
+        bytes_pdf = archivo.getvalue() 
+        texto_completo = extraer_texto_pdf(bytes_pdf)
+        datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
         
-        # Limpieza de ubicación por si cuela números
-        ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
-        
-        return {
-            "id": idx,
-            "Nombre Archivo": archivo.name,
-            "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-            "Puntuación (%)": score,
-            "Ubicación": ub_limpia,
-            "Años Exp.": datos_ia.get("anos_experiencia", 0),
-            "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
-            "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
-            "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
-            "Email": datos_ia.get("email", "No encontrado"),
-            "Teléfono": datos_ia.get("telefono", "No encontrado"),
-            "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
-            "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
-            "Texto": texto_completo,
-            "Bytes": bytes_pdf
-        }
+        if datos_ia:
+            score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
+            
+            # Limpieza de ubicación por si cuela números
+            ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
+            
+            return {
+                "id": idx,
+                "Nombre Archivo": archivo.name,
+                "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
+                "Puntuación (%)": score,
+                "Ubicación": ub_limpia,
+                "Años Exp.": datos_ia.get("anos_experiencia", 0),
+                "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
+                "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
+                "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
+                "Email": datos_ia.get("email", "No encontrado"),
+                "Teléfono": datos_ia.get("telefono", "No encontrado"),
+                "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
+                "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
+                "Texto": texto_completo,
+                "Bytes": bytes_pdf
+            }
+    except Exception as e:
+        print(f"❌ Error procesando CV {archivo.name}: {str(e)}")
     return None
 
 # --- CARGADOR DE ARCHIVOS ---
