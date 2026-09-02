@@ -43,10 +43,15 @@ ubicacion_input = st.sidebar.text_input("📍 Localidad / Ciudad:", value="", pl
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titulación:", value="", placeholder="Ej: Máster, Python, Inglés...")
 
-# --- EXTRAER DATOS DEL CV CON IA (PROMPT Y EXTRACCIÓN SEGURO) ---
+# --- EXTRAER DATOS DEL CV CON IA (SIN CACHE PARA EVITAR ERRORES) ---
 
-@st.cache_data(show_spinner=False)
 def extraer_datos_cv_con_ia(texto_cv, api_key):
+    """
+    Extrae datos del CV usando Groq sin cachear para evitar cachear errores.
+    """
+    if not texto_cv or not texto_cv.strip():
+        return None
+    
     try:
         client = Groq(api_key=api_key)
         
@@ -75,7 +80,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
             ],
             "resumen_ejecutivo": "Un resumen breve de 2 frases sobre el perfil del candidato.",
             "habilidades_clave": ["lista", "de", "habilidades", "tecnologias", "idiomas"]
-        }} # mensaje para la IA
+        }}
 
         TEXTO DEL CV:
         {texto_cv}
@@ -83,16 +88,19 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         
         chat_completion = client.chat.completions.create( 
             messages=[{"role": "user", "content": prompt}],
-
-
             model="llama-3.1-8b-instant", 
             response_format={"type": "json_object"}
         )
         
-        return json.loads(chat_completion.choices[0].message.content)
+        resultado = json.loads(chat_completion.choices[0].message.content)
+        print(f"✅ Groq procesó exitosamente. Nombre: {resultado.get('nombre_candidato', 'No identificado')}")
+        return resultado
         
+    except json.JSONDecodeError as e:
+        print(f"❌ Error JSON de Groq: {e}")
+        return None
     except Exception as e:
-        st.error(f"Error al analizar con Groq: {e}") 
+        print(f"❌ Error en extraer_datos_cv_con_ia: {str(e)}")
         return None
 
 # --- CÁLCULO DE MATCH LOCAL ---
@@ -159,36 +167,60 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
 def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
+    """Procesa un CV con manejo completo de errores."""
     try:
-        bytes_pdf = archivo.getvalue() 
+        print(f"\n🔄 Procesando: {archivo.name}")
+        
+        bytes_pdf = archivo.getvalue()
+        if not bytes_pdf:
+            print(f"❌ {archivo.name}: Archivo vacío")
+            return None
+            
+        print(f"  → Extrayendo texto...")
         texto_completo = extraer_texto_pdf(bytes_pdf)
+        
+        if not texto_completo or not texto_completo.strip():
+            print(f"❌ {archivo.name}: No se extrajo texto del PDF")
+            return None
+        
+        print(f"  → Analizando con IA...")
         datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
         
-        if datos_ia:
-            score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
-            
-            # Limpieza de ubicación por si cuela números
-            ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
-            
-            return {
-                "id": idx,
-                "Nombre Archivo": archivo.name,
-                "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
-                "Puntuación (%)": score,
-                "Ubicación": ub_limpia,
-                "Años Exp.": datos_ia.get("anos_experiencia", 0),
-                "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
-                "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
-                "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
-                "Email": datos_ia.get("email", "No encontrado"),
-                "Teléfono": datos_ia.get("telefono", "No encontrado"),
-                "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
-                "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
-                "Texto": texto_completo,
-                "Bytes": bytes_pdf
-            }
+        if not datos_ia:
+            print(f"❌ {archivo.name}: IA devolvió None")
+            return None
+        
+        print(f"  → Calculando score...")
+        score = calcular_match_local(datos_ia, texto_completo, puesto, ubicacion_input, exp_minima, palabras_input)
+        
+        ub_limpia = str(datos_ia.get("ubicacion_candidato", "No especificada"))
+        
+        resultado = {
+            "id": idx,
+            "Nombre Archivo": archivo.name,
+            "Candidato": datos_ia.get("nombre_candidato", "No identificado"),
+            "Puntuación (%)": score,
+            "Ubicación": ub_limpia,
+            "Años Exp.": datos_ia.get("anos_experiencia", 0),
+            "Desglose Experiencia": datos_ia.get("experiencias_desglosadas", []),
+            "Máster": "Sí" if datos_ia.get("tiene_master") else "No",
+            "Titulación": "Sí" if datos_ia.get("tiene_titulacion") else "No",
+            "Email": datos_ia.get("email", "No encontrado"),
+            "Teléfono": datos_ia.get("telefono", "No encontrado"),
+            "Resumen IA": datos_ia.get("resumen_ejecutivo", ""),
+            "Habilidades": ", ".join([str(h) for h in datos_ia.get("habilidades_clave", [])]),
+            "Texto": texto_completo,
+            "Bytes": bytes_pdf
+        }
+        
+        print(f"✅ {archivo.name}: Procesado exitosamente (Score: {score}%)")
+        return resultado
+        
     except Exception as e:
-        print(f"❌ Error procesando CV {archivo.name}: {str(e)}")
+        print(f"❌ EXCEPCIÓN en {archivo.name}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    
     return None
 
 # --- CARGADOR DE ARCHIVOS ---
@@ -196,7 +228,7 @@ archivos_pdf = st.file_uploader("Sube los CVs en formato PDF", type=["pdf"], acc
 
 if archivos_pdf:
     if not api_key:
-        st.warning("⚠️ Por favor, ingresa tu Groq API Key en la barra lateral para iniciar el análisis.")  
+        st.error("⚠️ Por favor, ingresa tu Groq API Key en la barra lateral para iniciar el análisis.")  
     else:
         lista_candidatos = []
         
@@ -204,9 +236,9 @@ if archivos_pdf:
         estado_texto = st.empty()
         total_archivos = len(archivos_pdf)
         
-        estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo...")
+        estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo... (Ver consola para detalles)")
         
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = [
                 executor.submit(
                     procesar_un_cv, archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input
@@ -216,9 +248,13 @@ if archivos_pdf:
             
             completados = 0
             for future in as_completed(futures):
-                res = future.result()
-                if res:
-                    lista_candidatos.append(res)
+                try:
+                    res = future.result()
+                    if res:
+                        lista_candidatos.append(res)
+                except Exception as e:
+                    print(f"❌ Error en ThreadPoolExecutor: {str(e)}")
+                
                 completados += 1
                 progreso.progress(completados / total_archivos)
         
@@ -229,16 +265,16 @@ if archivos_pdf:
             lista_candidatos = sorted(lista_candidatos, key=lambda x: x["Puntuación (%)"], reverse=True)
             
             # TABLA COMPARATIVA
-            
             st.markdown("---")
             st.subheader("📊 Tabla Comparativa Generada por IA")
             
             cols_eliminar = ["id", "Texto", "Bytes", "Desglose Experiencia"]
             df_exportar = pd.DataFrame(lista_candidatos).drop(columns=[c for c in cols_eliminar if c in pd.DataFrame(lista_candidatos).columns])
-            df_editado = st.data_editor(df_exportar, width="stretch", num_rows="fixed")
             
-            # Exportación CSV limpia sin romper tildes ni eñes en Excel
-            csv_data = df_editado.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+            st.dataframe(df_exportar, use_container_width=True)
+            
+            # Exportación CSV limpia
+            csv_data = df_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             st.download_button(
                 label="📥 Descargar Reporte Completo (CSV)",
                 data=csv_data,
@@ -248,7 +284,7 @@ if archivos_pdf:
 
             # DESGLOSE INDIVIDUAL
             st.markdown("---")
-            st.subheader("Evaluación Detallada")
+            st.subheader("📋 Evaluación Detallada")
             
             for i, cand in enumerate(lista_candidatos, start=1):
                 score = cand["Puntuación (%)"]
@@ -257,7 +293,6 @@ if archivos_pdf:
                 with st.expander(f"#{i} {badge} | {score}% — {cand['Candidato']} ({cand['Nombre Archivo']})"):
                     st.progress(score / 100)
                     
-                    # Ficha visual con datos sin cortes
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown(f"📧 **Email:** `{cand['Email']}`")
@@ -270,7 +305,6 @@ if archivos_pdf:
                     st.write("**Resumen Ejecutivo de la IA:**")
                     st.info(cand["Resumen IA"])
                     
-                    # Renderizado blindado del desglose (evita que falle si la IA devuelve texto o dict)
                     st.write("**💼 Historial de Puestos / Experiencia Desglosada:**")
                     desglose = cand.get("Desglose Experiencia", [])
                     
@@ -287,9 +321,10 @@ if archivos_pdf:
                     
                     st.write(f"**💡 Habilidades Detectadas:** {cand['Habilidades']}")
                     
-                    # Pestañas de PDF y texto extraído
                     tab_pdf, tab_texto = st.tabs(["👁️ Vista Previa del PDF", "📄 Texto Extraído"])
                     with tab_pdf:
                         mostrar_pdf_preview(cand["Bytes"], cand["Nombre Archivo"])
                     with tab_texto:
-                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}")
+                        st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}", disabled=True)
+        else:
+            st.error(f"❌ No se procesaron CVs correctamente. Se intentó procesar {total_archivos} archivos. Revisa la consola para detalles.")
