@@ -2,14 +2,12 @@ import streamlit as st
 import pandas as pd 
 import base64 
 import json 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq 
 from pdf_utils import extraer_texto_pdf
 
 st.set_page_config(page_title="Analizador de CVs Pro", page_icon="📄", layout="wide")  
 
-# CSS personalizado para corregir tamaños y evitar cortes visuales
-
+# CSS personalizado
 st.markdown("""
     <style> 
     [data-testid="stMetricLabel"] { font-size: 13px !important; }
@@ -43,12 +41,10 @@ ubicacion_input = st.sidebar.text_input("📍 Localidad / Ciudad:", value="", pl
 exp_minima = st.sidebar.slider("Años de experiencia deseados:", 0, 10, 0)
 palabras_input = st.sidebar.text_input("🔍 Requisitos / Palabras clave / Titulación:", value="", placeholder="Ej: Máster, Python, Inglés...")
 
-# --- EXTRAER DATOS DEL CV CON IA (SIN CACHE PARA EVITAR ERRORES) ---
+# --- EXTRAER DATOS DEL CV CON IA ---
 
 def extraer_datos_cv_con_ia(texto_cv, api_key):
-    """
-    Extrae datos del CV usando Groq sin cachear para evitar cachear errores.
-    """
+    """Extrae datos del CV usando Groq."""
     if not texto_cv or not texto_cv.strip():
         return None
     
@@ -93,7 +89,7 @@ def extraer_datos_cv_con_ia(texto_cv, api_key):
         )
         
         resultado = json.loads(chat_completion.choices[0].message.content)
-        print(f"✅ Groq procesó exitosamente. Nombre: {resultado.get('nombre_candidato', 'No identificado')}")
+        print(f"✅ Groq procesó: {resultado.get('nombre_candidato', 'No identificado')}")
         return resultado
         
     except json.JSONDecodeError as e:
@@ -161,33 +157,33 @@ def mostrar_pdf_preview(bytes_data, nombre_archivo="cv.pdf"):
         pdf_href = f'<a href="data:application/pdf;base64,{base64_pdf}" target="_blank" download="{nombre_archivo}" style="display:inline-block; padding:8px 16px; background-color:#2e7d32; color:white; text-decoration:none; border-radius:5px;">📥 Descargar PDF</a>'
         st.markdown(pdf_href, unsafe_allow_html=True) 
         
-        pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada. Usa el botón de descarga.</p></object>'
+        pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="600px"><p>Tu navegador no soporta la vista previa integrada.</p></object>'
         st.markdown(pdf_display, unsafe_allow_html=True) 
     except Exception as e:
         st.warning("No se pudo cargar la vista previa del PDF original.")
 
 def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input):
-    """Procesa un CV con manejo completo de errores."""
+    """Procesa un CV sin threads."""
     try:
-        print(f"\n🔄 Procesando: {archivo.name}")
+        print(f"\n🔄 [{idx+1}] Procesando: {archivo.name}")
         
         bytes_pdf = archivo.getvalue()
         if not bytes_pdf:
-            print(f"❌ {archivo.name}: Archivo vacío")
+            print(f"❌ Archivo vacío")
             return None
             
         print(f"  → Extrayendo texto...")
         texto_completo = extraer_texto_pdf(bytes_pdf)
         
         if not texto_completo or not texto_completo.strip():
-            print(f"❌ {archivo.name}: No se extrajo texto del PDF")
+            print(f"❌ No se extrajo texto")
             return None
         
         print(f"  → Analizando con IA...")
         datos_ia = extraer_datos_cv_con_ia(texto_completo, api_key)
         
         if not datos_ia:
-            print(f"❌ {archivo.name}: IA devolvió None")
+            print(f"❌ IA devolvió None")
             return None
         
         print(f"  → Calculando score...")
@@ -213,11 +209,11 @@ def procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, p
             "Bytes": bytes_pdf
         }
         
-        print(f"✅ {archivo.name}: Procesado exitosamente (Score: {score}%)")
+        print(f"✅ Completado: {archivo.name} (Score: {score}%)")
         return resultado
         
     except Exception as e:
-        print(f"❌ EXCEPCIÓN en {archivo.name}: {str(e)}")
+        print(f"❌ EXCEPCIÓN: {str(e)}")
         import traceback
         traceback.print_exc()
     
@@ -231,32 +227,23 @@ if archivos_pdf:
         st.error("⚠️ Por favor, ingresa tu Groq API Key en la barra lateral para iniciar el análisis.")  
     else:
         lista_candidatos = []
+        total_archivos = len(archivos_pdf)
         
         progreso = st.progress(0) 
         estado_texto = st.empty()
-        total_archivos = len(archivos_pdf)
         
-        estado_texto.info(f"⚡ Analizando {total_archivos} CVs en paralelo... (Ver consola para detalles)")
+        estado_texto.info(f"⚡ Analizando {total_archivos} CVs (procesamiento secuencial)...")
         
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [
-                executor.submit(
-                    procesar_un_cv, archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input
-                )
-                for idx, archivo in enumerate(archivos_pdf)
-            ]
+        # PROCESAMIENTO SECUENCIAL (SIN THREADS)
+        for idx, archivo in enumerate(archivos_pdf):
+            try:
+                res = procesar_un_cv(archivo, idx, api_key, puesto, ubicacion_input, exp_minima, palabras_input)
+                if res:
+                    lista_candidatos.append(res)
+            except Exception as e:
+                print(f"❌ Error en archivo {idx}: {str(e)}")
             
-            completados = 0
-            for future in as_completed(futures):
-                try:
-                    res = future.result()
-                    if res:
-                        lista_candidatos.append(res)
-                except Exception as e:
-                    print(f"❌ Error en ThreadPoolExecutor: {str(e)}")
-                
-                completados += 1
-                progreso.progress(completados / total_archivos)
+            progreso.progress((idx + 1) / total_archivos)
         
         progreso.empty()
         estado_texto.empty()
@@ -273,7 +260,7 @@ if archivos_pdf:
             
             st.dataframe(df_exportar, use_container_width=True)
             
-            # Exportación CSV limpia
+            # Exportación CSV
             csv_data = df_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             st.download_button(
                 label="📥 Descargar Reporte Completo (CSV)",
@@ -327,4 +314,4 @@ if archivos_pdf:
                     with tab_texto:
                         st.text_area("Texto bruto leído por la app", cand["Texto"], height=200, key=f"cv_text_{cand['id']}", disabled=True)
         else:
-            st.error(f"❌ No se procesaron CVs correctamente. Se intentó procesar {total_archivos} archivos. Revisa la consola para detalles.")
+            st.error(f"❌ No se procesaron CVs correctamente. Se intentó procesar {total_archivos} archivos.")
